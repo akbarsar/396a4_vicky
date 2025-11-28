@@ -176,42 +176,6 @@ struct ext2_dir_entry *next_dir_entry(struct ext2_dir_entry *entry);
 int dir_entry_rec_len(int name_len);
 
 /**
- * Initialize a directory entry with the given values.
- * Helper function used by add_dir_entry for setting up new entries.
- * @param entry     Pointer to directory entry to initialize
- * @param child_ino Inode number for the entry (1-based)
- * @param name      Name of the entry
- * @param name_len  Length of the name
- * @param type      File type (EXT2_FT_DIR, EXT2_FT_REG_FILE, EXT2_FT_SYMLINK)
- * @param rec_len   Record length to set for this entry
- */
-void init_dir_entry(struct ext2_dir_entry* entry, int child_ino, 
-                    const char* name, int name_len, uint8_t type, int rec_len);
-
-/**
- * Find the last directory entry in a block.
- * Traverses through all entries to find the final one.
- * @param blk Pointer to the start of the directory block
- * @return    Pointer to the last directory entry in the block
- */
-struct ext2_dir_entry* find_last_dir_entry(char* blk);
-
-/**
- * Create a directory entry in a new block.
- * Allocates a block, initializes it, and adds the entry.
- * @param dir_inode      Parent directory inode
- * @param block_index    Index in i_block array for new block
- * @param child_ino      Inode number for new entry
- * @param name           Name of new entry
- * @param name_len       Length of name
- * @param type           File type
- * @return               0 on success, -ENOSPC if no blocks available
- */
-int create_entry_in_new_block(struct ext2_inode* dir_inode, int block_index,
-                              int child_ino, const char* name, int name_len, 
-                              uint8_t type);
-
-/**
  * Add a new directory entry to a parent directory.
  * Thread-safe: acquires parent inode and block locks internally.
  * @param parent_ino Parent directory inode number (1-based)

@@ -283,7 +283,7 @@ int dir_entry_rec_len(int name_len) {
  * @param type      File type (EXT2_FT_DIR, EXT2_FT_REG_FILE, EXT2_FT_SYMLINK)
  * @param rec_len   Record length to set for this entry
  */
-void init_dir_entry(struct ext2_dir_entry* entry, int child_ino, 
+static void init_dir_entry(struct ext2_dir_entry* entry, int child_ino, 
                     const char* name, int name_len, uint8_t type, int rec_len) {
     entry->inode = child_ino;
     entry->name_len = name_len;
@@ -301,7 +301,7 @@ void init_dir_entry(struct ext2_dir_entry* entry, int child_ino,
  * @param blk Pointer to the start of the directory block
  * @return    Pointer to the last directory entry in the block
  */
-struct ext2_dir_entry* find_last_dir_entry(char* blk) {
+static struct ext2_dir_entry* find_last_dir_entry(char* blk) {
     struct ext2_dir_entry* entry = (struct ext2_dir_entry*) blk;
     struct ext2_dir_entry* last = NULL;
 
@@ -331,7 +331,7 @@ struct ext2_dir_entry* find_last_dir_entry(char* blk) {
  * @param type           File type
  * @return               Block number on success, -ENOSPC if no blocks available
  */
-int create_entry_in_new_block(struct ext2_inode* dir_inode, int block_index,
+static int create_entry_in_new_block(struct ext2_inode* dir_inode, int block_index,
                               int child_ino, const char* name, int name_len, 
                               uint8_t type) {
     /* Allocate a new block */
