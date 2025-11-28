@@ -422,6 +422,13 @@ int add_dir_entry(int parent_ino, const char* name, int child_ino, uint8_t type)
         int actual_size = dir_entry_rec_len(last->name_len);
         int remain = last->rec_len - actual_size;
 
+        /* Sanity check: ensure last entry doesn't extend beyond block */
+        if ((char*)last + last->rec_len > blk + EXT2_BLOCK_SIZE) {
+            pthread_mutex_unlock(&block_locks[block_num]);
+            pthread_mutex_unlock(&inode_locks[parent_ino - 1]);
+            return -ENOSPC;
+        }
+
         if (remain >= needed) {
             /* There is room: shrink last entry and append new one */
             last->rec_len = actual_size;
