@@ -84,8 +84,8 @@ int32_t ext2_fsal_rm(const char *path)
 		while ((uint8_t*)entry < blk_end && entry->rec_len > 0) {
 			// Match by name, not by inode (hard links share inodes!)
 			if (entry->inode != 0 &&
-			    entry->name_len == name_len &&
-			    strncmp(entry->name, name, name_len) == 0) {
+			    (size_t)entry->name_len == name_len &&
+			    memcmp(entry->name, name, name_len) == 0) {
 				found = 1;
 				if (prev) {
 					// merge rec_len into previous entry

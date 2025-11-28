@@ -1,0 +1,162 @@
+Synchronization Design Document for ext2 File System Operations
+================================================================
+
+Overview
+--------
+This document describes the synchronization strategy used to ensure thread-safe
+concurrent access to the ext2 file system data structures. The design uses a
+fine-grained locking approach to maximize concurrency while preventing race
+conditions and deadlocks.
+
+Shared Data Structures
+----------------------
+The following data structures are shared among concurrent file system operations:
+
+1. Superblock (superblock): Contains file system metadata including free block
+   and inode counts.
+
+2. Group Descriptor (group_desc): Contains block group metadata including
+   free counts and directory count.
+
+3. Inode Bitmap (inode_bitmap): Bitmap tracking allocated/free inodes.
+
+4. Block Bitmap (block_bitmap): Bitmap tracking allocated/free blocks.
+
+5. Inode Table (inode_table): Array of all inodes in the file system.
+
+6. Data Blocks: Actual data blocks on the disk, accessed via mmap.
+
+Synchronization Primitives
+--------------------------
+We use the following locks to protect shared data:
+
+1. inode_bitmap_lock (pthread_mutex_t):
+   - Protects the inode bitmap and inode-related counts in superblock/group_desc
+   - Must be held when allocating or freeing inodes
+
+2. block_bitmap_lock (pthread_mutex_t):
+   - Protects the block bitmap and block-related counts in superblock/group_desc
+   - Must be held when allocating or freeing blocks
+
+3. inode_locks[] (array of pthread_mutex_t):
+   - One lock per inode (indexed by inode number - 1)
+   - Protects individual inode structure contents
+   - Must be held when reading or modifying an inode's fields
+
+4. block_locks[] (array of pthread_mutex_t):
+   - One lock per block (indexed by block number)
+   - Protects individual block contents
+   - Must be held when reading or modifying block data
+
+Locking Strategy
+----------------
+
+1. Bitmap Lock Acquisition:
+   - alloc_inode(): Acquires inode_bitmap_lock, finds free inode, marks as used,
+     updates counts, releases lock
+   - alloc_block(): Acquires block_bitmap_lock, finds free block, marks as used,
+     updates counts, releases lock
+   - free_inode(): Acquires inode_bitmap_lock, marks as free, updates counts,
+     releases lock
+   - free_block(): Acquires block_bitmap_lock, marks as free, updates counts,
+     releases lock
+
+2. Inode Lock Acquisition:
+   - write_inode(): Acquires inode lock before modifying inode contents
+   - Operations that modify inode fields acquire the specific inode lock
+
+3. Block Lock Acquisition:
+   - write_block(): Acquires block lock before writing block contents
+   - Directory operations acquire parent inode lock, then block locks as needed
+
+4. Lock Ordering (to prevent deadlocks):
+   When multiple locks must be held simultaneously, we follow this order:
+   a) Parent inode lock first (for directory operations)
+   b) Block locks (for directory data blocks)
+   c) Bitmap locks are always acquired and released quickly
+   d) Target inode locks last (when modifying target files)
+
+Operation-Specific Synchronization
+----------------------------------
+
+ext2_fsal_mkdir:
+1. Look up parent (no locks needed, read-only path traversal)
+2. Check if name exists in parent (no locks, read-only)
+3. Allocate new inode (inode_bitmap_lock held briefly)
+4. Allocate new block (block_bitmap_lock held briefly)
+5. Write new inode (inode_lock for new inode)
+6. Write block contents for . and .. (block_lock for new block)
+7. Add directory entry to parent (parent inode lock, then block lock)
+8. Update parent's link count (parent inode lock)
+
+ext2_fsal_cp:
+1. Look up parent directory (read-only)
+2. Check for existing file
+3. If overwriting: free old blocks, reuse inode
+4. If creating: allocate inode and blocks
+5. Write file data blocks (block locks)
+6. Write inode (inode lock)
+7. Add directory entry if new file (parent inode lock, block lock)
+
+ext2_fsal_rm:
+1. Look up parent and target (read-only)
+2. Lock parent inode
+3. Find and remove directory entry (lock parent's data block)
+4. Unlock parent
+5. Lock target inode
+6. Decrement link count
+7. If link count == 0: free blocks and inode
+8. Unlock target inode
+
+ext2_fsal_ln_hl:
+1. Look up source file (read-only)
+2. Look up parent directory (read-only)
+3. Add directory entry (parent inode lock, block lock)
+4. Increment source inode link count (source inode lock)
+
+ext2_fsal_ln_sl:
+1. Look up parent directory (read-only)
+2. Allocate new inode
+3. Allocate data block for symlink path
+4. Write path to block (block lock via write_block)
+5. Write inode (inode lock via write_inode)
+6. Add directory entry (parent inode lock, block lock)
+
+Deadlock Prevention
+-------------------
+1. Consistent Lock Ordering: All operations acquire locks in a consistent order
+   (parent inode -> child blocks -> child inode)
+
+2. No Circular Dependencies: We avoid holding bitmap locks while acquiring
+   inode/block locks, and vice versa
+
+3. Brief Critical Sections: Bitmap locks are held only during allocation/
+   deallocation operations
+
+4. Lock Release Before External Calls: When possible, we release locks before
+   calling other functions that may acquire different locks
+
+Race Condition Prevention
+-------------------------
+1. Existence Checks: Before creating files/directories, we check if the name
+   exists while holding the parent inode lock
+
+2. Atomic Operations: Bitmap allocation is atomic - once we mark a bit, that
+   inode/block is ours
+
+3. Directory Entry Updates: Directory modifications are done while holding both
+   the parent inode lock and the relevant block lock
+
+Notes on Implementation
+-----------------------
+- The path lookup (path_lookup, find_dir_entry) functions are read-only and
+  don't acquire locks. This allows concurrent reads but means the caller
+  must re-verify state after acquiring locks.
+
+- For simplicity, we use a single inode lock per inode rather than separate
+  locks for different fields. This reduces complexity at the cost of some
+  potential parallelism.
+
+- Block locks protect the entire block contents. For directories with multiple
+  entries, this means operations on different entries in the same block are
+  serialized.
