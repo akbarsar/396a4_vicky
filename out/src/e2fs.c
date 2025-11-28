@@ -271,12 +271,103 @@ int dir_entry_rec_len(int name_len) {
 }
 
 /**
+ * Initialize a directory entry with the given values.
+ * 
+ * This helper function sets all fields of a directory entry structure.
+ * Used by add_dir_entry when creating new entries.
+ *
+ * @param entry     Pointer to directory entry to initialize
+ * @param child_ino Inode number for the entry (1-based)
+ * @param name      Name of the entry
+ * @param name_len  Length of the name
+ * @param type      File type (EXT2_FT_DIR, EXT2_FT_REG_FILE, EXT2_FT_SYMLINK)
+ * @param rec_len   Record length to set for this entry
+ */
+void init_dir_entry(struct ext2_dir_entry* entry, int child_ino, 
+                    const char* name, int name_len, uint8_t type, int rec_len) {
+    entry->inode = child_ino;
+    entry->name_len = name_len;
+    entry->file_type = type;
+    memcpy(entry->name, name, name_len);
+    entry->rec_len = rec_len;
+}
+
+/**
+ * Find the last directory entry in a block.
+ * 
+ * Traverses through all entries in the block following rec_len pointers
+ * until reaching the final entry (one whose rec_len extends to block end).
+ *
+ * @param blk Pointer to the start of the directory block
+ * @return    Pointer to the last directory entry in the block
+ */
+struct ext2_dir_entry* find_last_dir_entry(char* blk) {
+    struct ext2_dir_entry* entry = (struct ext2_dir_entry*) blk;
+    struct ext2_dir_entry* last = NULL;
+
+    /* Traverse entries until we reach the last one */
+    while ((char*)entry < blk + EXT2_BLOCK_SIZE && entry->rec_len > 0) {
+        last = entry;
+        /* Check if this entry's rec_len extends to block end */
+        if ((char*)entry + entry->rec_len >= blk + EXT2_BLOCK_SIZE) {
+            break;
+        }
+        entry = next_dir_entry(entry);
+    }
+    return last;
+}
+
+/**
+ * Create a directory entry in a new block.
+ * 
+ * Allocates a new block, initializes it to zero, and creates a single
+ * directory entry that spans the entire block.
+ *
+ * @param dir_inode      Parent directory inode
+ * @param block_index    Index in i_block array for new block
+ * @param child_ino      Inode number for new entry
+ * @param name           Name of new entry
+ * @param name_len       Length of name
+ * @param type           File type
+ * @return               Block number on success, -ENOSPC if no blocks available
+ */
+int create_entry_in_new_block(struct ext2_inode* dir_inode, int block_index,
+                              int child_ino, const char* name, int name_len, 
+                              uint8_t type) {
+    /* Allocate a new block */
+    int new_block = alloc_block();
+    if (new_block < 0) {
+        return -ENOSPC;
+    }
+
+    /* Update directory inode to reference new block */
+    dir_inode->i_block[block_index] = new_block;
+    dir_inode->i_size += (block_index == 0) ? EXT2_BLOCK_SIZE : EXT2_BLOCK_SIZE;
+    dir_inode->i_blocks += EXT2_BLOCK_SIZE / 512;
+
+    /* Initialize the new block with zeros */
+    char* blk = get_block(new_block);
+    memset(blk, 0, EXT2_BLOCK_SIZE);
+
+    /* Create entry spanning the entire block */
+    struct ext2_dir_entry* entry = (struct ext2_dir_entry*) blk;
+    init_dir_entry(entry, child_ino, name, name_len, type, EXT2_BLOCK_SIZE);
+
+    /* Update directory count if adding a subdirectory */
+    if (type == EXT2_FT_DIR) {
+        group_desc->bg_used_dirs_count++;
+    }
+
+    return new_block;
+}
+
+/**
  * Add a new directory entry to a parent directory.
  * 
- * This function:
- * 1. Finds the last used block in the parent directory
- * 2. Tries to append the entry to the last block if space exists
- * 3. Allocates a new block if needed
+ * This function handles three cases:
+ * 1. No blocks allocated - creates first block with the entry
+ * 2. Space in last block - splits last entry and appends new one
+ * 3. No space in last block - allocates new block for the entry
  *
  * @param parent_ino Parent directory inode number (1-based)
  * @param name       Name of the new entry
@@ -307,33 +398,14 @@ int add_dir_entry(int parent_ino, const char* name, int child_ino, uint8_t type)
 
     /* Case 1: No blocks allocated yet - create first block */
     if (last_block_index == -1) {
-        int new_block = alloc_block();
-        if (new_block < 0) {
+        int result = create_entry_in_new_block(dir_inode, 0, child_ino, 
+                                                name, name_len, type);
+        if (result < 0) {
             pthread_mutex_unlock(&inode_locks[parent_ino - 1]);
-            return -ENOSPC;
+            return result;
         }
-
-        /* Initialize the new block */
-        dir_inode->i_block[0] = new_block;
+        /* Fix: Set size correctly for first block */
         dir_inode->i_size = EXT2_BLOCK_SIZE;
-        dir_inode->i_blocks += EXT2_BLOCK_SIZE / 512;
-
-        char* blk = get_block(new_block);
-        memset(blk, 0, EXT2_BLOCK_SIZE);
-
-        /* Create the first entry taking the whole block */
-        struct ext2_dir_entry* entry = (struct ext2_dir_entry*) blk;
-        entry->inode = child_ino;
-        entry->name_len = name_len;
-        entry->file_type = type;
-        memcpy(entry->name, name, name_len);
-        entry->rec_len = EXT2_BLOCK_SIZE;
-
-        /* Update directory count if adding a directory */
-        if (type == EXT2_FT_DIR) {
-            group_desc->bg_used_dirs_count++;
-        }
-
         pthread_mutex_unlock(&inode_locks[parent_ino - 1]);
         return 0;
     }
@@ -343,17 +415,7 @@ int add_dir_entry(int parent_ino, const char* name, int child_ino, uint8_t type)
     pthread_mutex_lock(&block_locks[block_num]);
 
     char* blk = get_block(block_num);
-    struct ext2_dir_entry* entry = (struct ext2_dir_entry*) blk;
-    struct ext2_dir_entry* last = NULL;
-
-    /* Find the last entry in the block */
-    while ((char*)entry < blk + EXT2_BLOCK_SIZE && entry->rec_len > 0) {
-        last = entry;
-        if ((char*)entry + entry->rec_len >= blk + EXT2_BLOCK_SIZE) {
-            break;
-        }
-        entry = next_dir_entry(entry);
-    }
+    struct ext2_dir_entry* last = find_last_dir_entry(blk);
 
     /* Try to split the last entry's rec_len to make room */
     if (last != NULL) {
@@ -366,11 +428,7 @@ int add_dir_entry(int parent_ino, const char* name, int child_ino, uint8_t type)
             struct ext2_dir_entry* new_entry = 
                 (struct ext2_dir_entry*)((char*)last + actual_size);
             
-            new_entry->inode = child_ino;
-            new_entry->name_len = name_len;
-            new_entry->file_type = type;
-            memcpy(new_entry->name, name, name_len);
-            new_entry->rec_len = remain;
+            init_dir_entry(new_entry, child_ino, name, name_len, type, remain);
 
             if (type == EXT2_FT_DIR) {
                 group_desc->bg_used_dirs_count++;
@@ -391,30 +449,11 @@ int add_dir_entry(int parent_ino, const char* name, int child_ino, uint8_t type)
         return -ENOSPC;
     }
 
-    int new_block = alloc_block();
-    if (new_block < 0) {
+    int result = create_entry_in_new_block(dir_inode, last_block_index + 1,
+                                            child_ino, name, name_len, type);
+    if (result < 0) {
         pthread_mutex_unlock(&inode_locks[parent_ino - 1]);
-        return -ENOSPC;
-    }
-
-    /* Initialize the new block */
-    dir_inode->i_block[last_block_index + 1] = new_block;
-    dir_inode->i_size += EXT2_BLOCK_SIZE;
-    dir_inode->i_blocks += EXT2_BLOCK_SIZE / 512;
-
-    char* new_blk = get_block(new_block);
-    memset(new_blk, 0, EXT2_BLOCK_SIZE);
-
-    /* Create entry taking the whole new block */
-    struct ext2_dir_entry* new_entry = (struct ext2_dir_entry*) new_blk;
-    new_entry->inode = child_ino;
-    new_entry->name_len = name_len;
-    new_entry->file_type = type;
-    memcpy(new_entry->name, name, name_len);
-    new_entry->rec_len = EXT2_BLOCK_SIZE;
-
-    if (type == EXT2_FT_DIR) {
-        group_desc->bg_used_dirs_count++;
+        return result;
     }
 
     pthread_mutex_unlock(&inode_locks[parent_ino - 1]);
