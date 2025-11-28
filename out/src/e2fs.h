@@ -35,7 +35,7 @@ void clear_bit(uint8_t *bitmap, int n);
 
 // lock init and cleanup
 void locks_init(int num_inodes, int num_blocks);
-void locks_destroy();
+void locks_destroy(int num_inodes, int num_blocks);
 
 int alloc_inode();
 int alloc_block();

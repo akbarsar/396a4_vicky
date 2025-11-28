@@ -19,6 +19,23 @@
 #include "ext2fsal.h"
 #include "e2fs.h"
 
+// Global variable definitions (declared extern in ext2fsal.h)
+struct ext2_super_block *superblock;
+struct ext2_group_desc *group_desc;
+uint8_t* fs;
+
+uint8_t* inode_bitmap;
+uint8_t* block_bitmap;
+struct ext2_inode* inode_table;
+
+int num_inodes;
+int num_blocks;
+
+// Lock definitions
+pthread_mutex_t* inode_locks;
+pthread_mutex_t* block_locks;
+pthread_mutex_t inode_bitmap_lock;
+pthread_mutex_t block_bitmap_lock;
 
 static int disk;                  // fd for disk image
 static size_t image_size;
@@ -61,11 +78,10 @@ void ext2_fsal_destroy()
     	/**
      	* TODO: Cleanup tasks, e.g., destroy synchronization primitives, munmap the image, etc.
      	*/
-	// get number of inodes, blocks, and bitmaps
-        int num_inodes = superblock->s_inodes_count;
-        int num_blocks = superblock->s_blocks_count;
-        int num_block_groups = (num_blocks + superblock->s_blocks_per_group - 1) / superblock->s_blocks_per_group;
+	// get number of inodes, blocks
+        int n_inodes = superblock->s_inodes_count;
+        int n_blocks = superblock->s_blocks_count;
 
-    	locks_destroy(num_inodes, num_blocks, num_block_groups, num_block_groups);
+    	locks_destroy(n_inodes, n_blocks);
     	munmap(fs, image_size);
 }

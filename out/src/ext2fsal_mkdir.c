@@ -27,10 +27,9 @@ int32_t ext2_fsal_mkdir(const char *path)
      * TODO: implement the ext2_mkdir command here ...
      * the argument path is the path to the directory that is to be created.
      */
-
-     /* This is just to avoid compilation warnings, remove this line when you're done. */
 	/* validate */
 	if (path == NULL) return -ENOENT;
+	if (path[0] != '/') return -ENOENT;  // must be absolute path
 
 	/* copy path buffers */
 	char parent_path[PATH_MAX];
@@ -44,12 +43,23 @@ int32_t ext2_fsal_mkdir(const char *path)
 
 	/* ensure parent is a directory */
 	struct ext2_inode *parent_inode = get_inode(parent_ino);
-	if (!S_ISDIR(parent_inode->i_mode)) return -ENOTDIR;
+	if (!S_ISDIR(parent_inode->i_mode)) return -ENOENT;
 
 	/* check if name already exists in parent */
 	int existing = find_dir_entry(parent_inode, name);
 	if (existing >= 0) {
-		/* if the entry exists, mkdir should fail with EEXIST */
+		struct ext2_inode *exist_inode = get_inode(existing);
+		/* if entry exists and is a directory, return EEXIST */
+		if (S_ISDIR(exist_inode->i_mode)) {
+			return -EEXIST;
+		}
+		/* if entry exists but is a file/symlink and we have trailing slash,
+		 * path like /foo/bar/blah/ where blah is a file => ENOENT per spec */
+		size_t plen = strlen(path);
+		if (plen > 1 && path[plen - 1] == '/') {
+			return -ENOENT;
+		}
+		/* otherwise (no trailing slash), entry exists as file => EEXIST */
 		return -EEXIST;
 	} else if (existing != -ENOENT) {
 		/* unexpected error */
@@ -73,13 +83,13 @@ int32_t ext2_fsal_mkdir(const char *path)
 	memset(&new_inode, 0, sizeof(new_inode));
 
 	/* set directory mode (drwxr-xr-x) — set file type bits and permissions */
-	new_inode.i_mode = S_IFDIR | 0755;
+	new_inode.i_mode = EXT2_S_IFDIR | 0755;
 	new_inode.i_size = EXT2_BLOCK_SIZE;
 	new_inode.i_links_count = 2; /* '.' and parent link (..) */
 	new_inode.i_blocks = EXT2_BLOCK_SIZE / 512; /* i_blocks counted in 512-byte sectors */
 
 	/* point the first direct block to the allocated block */
-	for (int i = 0; i < 15; i++) new_inode.i_block[i] = 0;
+	for (int i = 0; i < TOTAL_POINTERS; i++) new_inode.i_block[i] = 0;
 	new_inode.i_block[0] = new_block;
 
 	/* write inode to disk (write_inode uses inode lock) */
@@ -116,14 +126,13 @@ int32_t ext2_fsal_mkdir(const char *path)
 		/* cleanup: free block and inode */
 		free_block(new_block);
 		free_inode(new_ino);
-		return -ENOSPC; /* or other suitable error */
+		return addrc;
 	}
 
 	/* increment parent's link count (new subdirectory increases parent's links) */
 	pthread_mutex_lock(&inode_locks[parent_ino - 1]);
-	struct ext2_inode pcopy = *get_inode(parent_ino);
-	pcopy.i_links_count += 1;
-	*get_inode(parent_ino) = pcopy; /* direct update under lock */
+	struct ext2_inode *p = get_inode(parent_ino);
+	p->i_links_count += 1;
 	pthread_mutex_unlock(&inode_locks[parent_ino - 1]);
 
 	return 0;

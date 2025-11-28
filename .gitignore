@@ -1,0 +1,5 @@
+# Object files
+*.o
+
+# Shared libraries in source dir (keep the ones in bin/)
+out/src/*.so

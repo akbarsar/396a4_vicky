@@ -145,43 +145,46 @@ struct ext2_dir_entry *next_dir_entry(struct ext2_dir_entry *entry) {
 
 
 
-// add a dir entry (child_ino) to parent_ino, returns 0 on success, not sure if we should do -1 or the actual error for invalid
-// also i think we might need to split this into smaller helpers, theres a lot of redundancy inside
+// add a dir entry (child_ino) to parent_ino, returns 0 on success
+// type is the directory entry file type (e.g., EXT2_FT_DIR, EXT2_FT_REG_FILE, EXT2_FT_SYMLINK)
 int add_dir_entry(int parent_ino, const char* name, int child_ino, uint8_t type) {
 	struct ext2_inode* dir_inode = get_inode(parent_ino);
 	if (!S_ISDIR(dir_inode->i_mode)) {
     		return -ENOTDIR;  // parent must be a directory
 	}
 
+	int name_len = strlen(name);
+	int needed = dir_entry_rec_len(name_len);
+
 	pthread_mutex_lock(&inode_locks[parent_ino - 1]);
 
 	// find last used block
 	int last_block_index = -1;
-	for (int i = 0; i < 15; i++) {
+	for (int i = 0; i < DIRECT_POINTERS; i++) {
 		if (dir_inode->i_block[i] != 0) last_block_index = i;
 	}
 
 	// allocate a new block if none used
 	if (last_block_index == -1) {
-		last_block_index = 0;
 		int new_block = alloc_block();
 		if (new_block < 0) {
 			pthread_mutex_unlock(&inode_locks[parent_ino - 1]);
 			return -ENOSPC;
 		}
-		dir_inode->i_block[last_block_index] = new_block;
+		dir_inode->i_block[0] = new_block;
+		dir_inode->i_size = EXT2_BLOCK_SIZE;
 		dir_inode->i_blocks += EXT2_BLOCK_SIZE / 512;
 		char* blk = get_block(new_block);
 		memset(blk, 0, EXT2_BLOCK_SIZE);
 
 		struct ext2_dir_entry* entry = (struct ext2_dir_entry*) blk;
 		entry->inode = child_ino;
-		entry->name_len = strlen(name);
+		entry->name_len = name_len;
 		entry->file_type = type;
-		strncpy(entry->name, name, entry->name_len);
-		entry->rec_len = dir_entry_rec_len(entry->name_len);
+		memcpy(entry->name, name, name_len);
+		entry->rec_len = EXT2_BLOCK_SIZE;  // first entry takes the whole block
 
-		if (type == EXT2_S_IFDIR) group_desc->bg_used_dirs_count++;
+		if (type == EXT2_FT_DIR) group_desc->bg_used_dirs_count++;
 
 		pthread_mutex_unlock(&inode_locks[parent_ino - 1]);
 		return 0;
@@ -192,65 +195,69 @@ int add_dir_entry(int parent_ino, const char* name, int child_ino, uint8_t type)
 	pthread_mutex_lock(&block_locks[block_num]);
 	char* blk = get_block(block_num);
 	struct ext2_dir_entry* entry = (struct ext2_dir_entry*) blk;
-	struct ext2_dir_entry* prev = NULL;
+	struct ext2_dir_entry* last = NULL;
 
-	// go to last used entry
-	while ((char*)entry + entry->rec_len < blk + EXT2_BLOCK_SIZE && entry->rec_len > 0) {
-		prev = entry;
+	// go to last entry in the block
+	while ((char*)entry < blk + EXT2_BLOCK_SIZE && entry->rec_len > 0) {
+		last = entry;
+		if ((char*)entry + entry->rec_len >= blk + EXT2_BLOCK_SIZE) break;
 		entry = next_dir_entry(entry);
 	}
 
-	// append new entry after last if space exists
-	if (prev) {
-		int actual_size = (8 + prev->name_len + 3) & ~3;
-		int needed = (8 + strlen(name) + 3) & ~3;
-		int remain = prev->rec_len - actual_size;
+	if (last != NULL) {
+		// check if we can split the last entry's rec_len
+		int actual_size = dir_entry_rec_len(last->name_len);
+		int remain = last->rec_len - actual_size;
 
-		if (remain < needed || (char*)prev + prev->rec_len > blk + EXT2_BLOCK_SIZE) {
-			return -ENOSPC;
+		if (remain >= needed) {
+			// there is room: shrink last entry and append new one
+			last->rec_len = actual_size;
+			struct ext2_dir_entry* new_entry = (struct ext2_dir_entry*)((char*)last + actual_size);
+			new_entry->inode = child_ino;
+			new_entry->name_len = name_len;
+			new_entry->file_type = type;
+			memcpy(new_entry->name, name, name_len);
+			new_entry->rec_len = remain;
+
+			if (type == EXT2_FT_DIR) group_desc->bg_used_dirs_count++;
+
+			pthread_mutex_unlock(&block_locks[block_num]);
+			pthread_mutex_unlock(&inode_locks[parent_ino - 1]);
+			return 0;
 		}
-
-		struct ext2_dir_entry* new_entry = next_dir_entry(prev);
-		new_entry->inode = child_ino;
-		new_entry->name_len = strlen(name);
-		new_entry->file_type = type;
-		strncpy(new_entry->name, name, new_entry->name_len);
-		new_entry->rec_len = remain;
-
-		if (type == EXT2_S_IFDIR) group_desc->bg_used_dirs_count++;
-
-		pthread_mutex_unlock(&block_locks[block_num]);
-		pthread_mutex_unlock(&inode_locks[parent_ino - 1]);
-		return 0;
-	} else { // no space in last block after last entry, alloc new block
-		int new_block = alloc_block();
-                if (new_block < 0) {
-                        pthread_mutex_unlock(&inode_locks[parent_ino - 1]);
-                        return -ENOSPC;
-                }
-                dir_inode->i_block[last_block_index + 1] = new_block;
-                dir_inode->i_blocks += EXT2_BLOCK_SIZE / 512;
-                char* blk = get_block(new_block);
-                memset(blk, 0, EXT2_BLOCK_SIZE);
-
-                struct ext2_dir_entry* entry = (struct ext2_dir_entry*) blk;
-                entry->inode = child_ino;
-                entry->name_len = strlen(name);
-                entry->file_type = type;
-                strncpy(entry->name, name, entry->name_len);
-                entry->rec_len = dir_entry_rec_len(entry->name_len);
-
-                if (type == EXT2_S_IFDIR) group_desc->bg_used_dirs_count++;
-
-                pthread_mutex_unlock(&inode_locks[parent_ino - 1]);
-                return 0;
-
 	}
 
-
+	// no space in last block, need to allocate new block
 	pthread_mutex_unlock(&block_locks[block_num]);
+
+	if (last_block_index + 1 >= DIRECT_POINTERS) {
+		// out of direct block pointers
+		pthread_mutex_unlock(&inode_locks[parent_ino - 1]);
+		return -ENOSPC;
+	}
+
+	int new_block = alloc_block();
+	if (new_block < 0) {
+		pthread_mutex_unlock(&inode_locks[parent_ino - 1]);
+		return -ENOSPC;
+	}
+	dir_inode->i_block[last_block_index + 1] = new_block;
+	dir_inode->i_size += EXT2_BLOCK_SIZE;
+	dir_inode->i_blocks += EXT2_BLOCK_SIZE / 512;
+	char* new_blk = get_block(new_block);
+	memset(new_blk, 0, EXT2_BLOCK_SIZE);
+
+	struct ext2_dir_entry* new_entry = (struct ext2_dir_entry*) new_blk;
+	new_entry->inode = child_ino;
+	new_entry->name_len = name_len;
+	new_entry->file_type = type;
+	memcpy(new_entry->name, name, name_len);
+	new_entry->rec_len = EXT2_BLOCK_SIZE;  // takes the whole block
+
+	if (type == EXT2_FT_DIR) group_desc->bg_used_dirs_count++;
+
 	pthread_mutex_unlock(&inode_locks[parent_ino - 1]);
-	return -ENOSPC;
+	return 0;
 }
 
 
@@ -359,6 +366,7 @@ void free_inode(int ino) {
 	pthread_mutex_lock(&inode_bitmap_lock);
 	clear_bit(inode_bitmap, idx);
 	group_desc->bg_free_inodes_count++;
+	superblock->s_free_inodes_count++;
 	pthread_mutex_unlock(&inode_bitmap_lock);
 }
 
@@ -367,6 +375,7 @@ void free_block(int block_num) {
 	pthread_mutex_lock(&block_bitmap_lock);
 	clear_bit(block_bitmap, block_num);
 	group_desc->bg_free_blocks_count++;
+	superblock->s_free_blocks_count++;
 	pthread_mutex_unlock(&block_bitmap_lock);
 }
 

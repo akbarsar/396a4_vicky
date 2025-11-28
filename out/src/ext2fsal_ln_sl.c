@@ -19,6 +19,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
+#include <time.h>
 
 
 int32_t ext2_fsal_ln_sl(const char *src,
@@ -28,14 +29,15 @@ int32_t ext2_fsal_ln_sl(const char *src,
      * TODO: implement the ext2_ln_sl command here ...
      * src and dst are the ln command arguments described in the handout.
      */
+    if (!src || !dst) return -ENOENT;
+    if (dst[0] != '/') return -ENOENT;  // destination must be absolute
+
+    // NOTE: For symlinks, the source path does NOT need to be valid!
+    // We just store whatever path is given.
+
     char parent[PATH_MAX], name[EXT2_NAME_LEN];
 
-    // ensure target exists
-    int target_ino = path_lookup(src);
-    if (target_ino < 0)
-        return -ENOENT;
-
-    // parse link_path
+    // parse link_path (destination)
     if (split_parent_name(dst, parent, name) < 0)
         return -ENOENT;
 
@@ -51,26 +53,51 @@ int32_t ext2_fsal_ln_sl(const char *src,
     int exists = find_dir_entry(p_inode, name);
     if (exists >= 0) {
         struct ext2_inode *eino = get_inode(exists);
-        if (S_ISLNK(eino->i_mode))
-            return -EEXIST;
-        // for regular file, overwrite
+        // if existing entry is a directory, return EISDIR per spec
+        if (S_ISDIR(eino->i_mode))
+            return -EISDIR;
+        // otherwise return EEXIST (for file or symlink)
         return -EEXIST;
     }
 
-    // new inod
+    // allocate new inode for symlink
     int new_ino = alloc_inode();
     if (new_ino < 0) return -ENOSPC;
 
-    struct ext2_inode *inode = get_inode(new_ino);
-    memset(inode, 0, sizeof(*inode));
+    // allocate a data block to store the path (no fast symlinks per spec)
+    int new_block = alloc_block();
+    if (new_block < 0) {
+        free_inode(new_ino);
+        return -ENOSPC;
+    }
 
-    inode->i_mode = EXT2_S_IFLNK | 0777;
-    inode->i_links_count = 1;
-    inode->i_size = strlen(src);
+    // prepare inode
+    struct ext2_inode new_inode;
+    memset(&new_inode, 0, sizeof(new_inode));
+    new_inode.i_mode = EXT2_S_IFLNK | 0777;
+    new_inode.i_links_count = 1;
+    new_inode.i_size = strlen(src);
+    new_inode.i_blocks = EXT2_BLOCK_SIZE / 512;
+    new_inode.i_block[0] = new_block;
+    new_inode.i_ctime = (unsigned int)time(NULL);
+    new_inode.i_mtime = new_inode.i_ctime;
+    new_inode.i_atime = new_inode.i_ctime;
+
+    // write the source path into the data block
+    char *blk = get_block(new_block);
+    memset(blk, 0, EXT2_BLOCK_SIZE);
+    memcpy(blk, src, strlen(src));
+
+    // write inode
+    write_inode(new_ino, &new_inode);
 
     // add link name into parent directory
     int r = add_dir_entry(parent_ino, name, new_ino, EXT2_FT_SYMLINK);
-    if (r < 0) return r;
+    if (r < 0) {
+        free_block(new_block);
+        free_inode(new_ino);
+        return r;
+    }
 
     return 0;
 }
