@@ -521,6 +521,11 @@ int path_lookup(const char *path) {
         return -ENOENT;
     }
 
+    /* Ensure the path is absolute (must start with '/') */
+    if (path[0] != '/') {
+        return -ENOENT;
+    }
+
     /* Create a writable copy for tokenization */
     char buf[PATH_MAX];
     strncpy(buf, path, PATH_MAX);
