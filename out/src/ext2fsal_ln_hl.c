@@ -11,70 +11,107 @@
  * -------------
  */
 
+/**
+ * @file ext2fsal_ln_hl.c
+ * @brief Implementation of the ext2 hard link operation.
+ *
+ * Creates a hard link to an existing file in the ext2 filesystem.
+ * Hard links share the same inode, so changes to one are reflected in all.
+ */
+
 #include "ext2fsal.h"
 #include "e2fs.h"
 #include <sys/stat.h>
-
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
 
-
-int32_t ext2_fsal_ln_hl(const char *src,
-                        const char *dst)
+/**
+ * Create a hard link to an existing file.
+ *
+ * This function:
+ * 1. Validates both source and destination paths
+ * 2. Verifies source exists and is not a directory
+ * 3. Creates a new directory entry pointing to source's inode
+ * 4. Increments the source inode's link count
+ *
+ * Note: Unlike regular ln, this implementation returns EISDIR if the
+ * destination is an existing directory, rather than creating a link inside it.
+ *
+ * Error handling:
+ * - ENOENT: Source or destination path is invalid
+ * - EISDIR: Source is a directory, or destination exists as a directory
+ * - EEXIST: Destination name already exists
+ *
+ * @param src Absolute path to the source file
+ * @param dst Absolute path for the new hard link
+ * @return    0 on success, negative errno on error
+ */
+int32_t ext2_fsal_ln_hl(const char *src, const char *dst)
 {
-    /**
-     * TODO: implement the ext2_ln_hl command here ...
-     * src and dst are the ln command arguments described in the handout.
-     */
-    if (!src || !dst) return -ENOENT;
-    if (src[0] != '/' || dst[0] != '/') return -ENOENT;
+    /* Validate input paths */
+    if (!src || !dst) {
+        return -ENOENT;
+    }
+    if (src[0] != '/' || dst[0] != '/') {
+        return -ENOENT;
+    }
 
-    char parent[PATH_MAX], name[EXT2_NAME_LEN];
-
-    // lookup source
+    /* Lookup source file */
     int src_ino = path_lookup(src);
-    if (src_ino < 0) return -ENOENT;
+    if (src_ino < 0) {
+        return -ENOENT;
+    }
 
     struct ext2_inode *src_inode = get_inode(src_ino);
 
-    // no hardlink for dirs
-    if (S_ISDIR(src_inode->i_mode))
+    /* Cannot create hard links to directories */
+    if (S_ISDIR(src_inode->i_mode)) {
         return -EISDIR;
+    }
 
-    if (split_parent_name(dst, parent, name) < 0)
+    /* Parse destination path */
+    char parent[PATH_MAX], name[EXT2_NAME_LEN];
+    if (split_parent_name(dst, parent, name) < 0) {
         return -ENOENT;
+    }
 
+    /* Lookup destination parent directory */
     int parent_ino = path_lookup(parent);
-    if (parent_ino < 0) return -ENOENT;
+    if (parent_ino < 0) {
+        return -ENOENT;
+    }
 
     struct ext2_inode *p_inode = get_inode(parent_ino);
-    if (!S_ISDIR(p_inode->i_mode))
+    if (!S_ISDIR(p_inode->i_mode)) {
         return -ENOENT;
+    }
 
-    // check if name already exists
+    /* Check if destination name already exists */
     int exists_ino = find_dir_entry(p_inode, name);
     if (exists_ino >= 0) {
         struct ext2_inode *exist_inode = get_inode(exists_ino);
-        // if it's a directory, return EISDIR per spec
-        if (S_ISDIR(exist_inode->i_mode))
+        if (S_ISDIR(exist_inode->i_mode)) {
             return -EISDIR;
-        // otherwise return EEXIST
+        }
         return -EEXIST;
     }
 
-    // determine file type for directory entry
+    /* Determine file type for directory entry */
     uint8_t file_type = EXT2_FT_REG_FILE;
-    if (S_ISLNK(src_inode->i_mode))
+    if (S_ISLNK(src_inode->i_mode)) {
         file_type = EXT2_FT_SYMLINK;
+    }
 
-    // add directory entry pointing to same inode
+    /* Add new directory entry pointing to source inode */
     int r = add_dir_entry(parent_ino, name, src_ino, file_type);
-    if (r < 0) return r;
+    if (r < 0) {
+        return r;
+    }
 
-    // increment links count with proper locking
+    /* Increment source inode's link count */
     pthread_mutex_lock(&inode_locks[src_ino - 1]);
     src_inode->i_links_count++;
     pthread_mutex_unlock(&inode_locks[src_ino - 1]);
