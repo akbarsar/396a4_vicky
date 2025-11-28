@@ -546,8 +546,9 @@ int path_lookup(const char *path) {
         }
 
         /* Handle ".." - go to parent (root's parent is itself) */
+        /* Note: Per assignment specs, we don't need to support ".." in middle of paths */
         if (strcmp(token, "..") == 0) {
-            curr_ino = EXT2_ROOT_INO;  /* Simplified: always go to root for ".." */
+            curr_ino = EXT2_ROOT_INO;
             curr_inode = get_inode(curr_ino);
             token = strtok_r(NULL, "/", &saveptr);
             continue;
