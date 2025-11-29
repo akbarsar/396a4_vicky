@@ -30,6 +30,7 @@
 #include <string.h>
 #include <errno.h>
 #include <stdlib.h>
+#include <time.h>
 #include "e2fs.h"
 #include "ext2fsal.h"
 
@@ -786,4 +787,24 @@ int write_data_into_inode(int host_fd, struct ext2_inode *inode, off_t filesize)
     inode->i_size = filesize;
     inode->i_blocks = written_blocks * (EXT2_BLOCK_SIZE / 512);
     return 0;
+}
+
+/*
+ * =============================================================================
+ *                       INODE INITIALIZATION HELPERS
+ * =============================================================================
+ */
+
+/**
+ * Initialize a new file inode with proper mode, timestamps, and link count.
+ */
+void init_file_inode(struct ext2_inode *inode) {
+    memset(inode, 0, sizeof(*inode));
+    inode->i_mode = EXT2_S_IFREG | 0644;
+    inode->i_size = 0;
+    inode->i_links_count = 1;
+    inode->i_dtime = 0;
+    inode->i_ctime = (uint32_t)time(NULL);
+    inode->i_mtime = inode->i_ctime;
+    inode->i_atime = inode->i_ctime;
 }

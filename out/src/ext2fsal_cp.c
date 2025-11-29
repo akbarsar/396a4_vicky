@@ -31,21 +31,134 @@
 #include <sys/types.h>
 
 /**
+ * Extract basename from a path (last component after final '/').
+ */
+static const char* get_basename(const char *path) {
+    const char *base = strrchr(path, '/');
+    return (base) ? base + 1 : path;
+}
+
+/**
+ * Open and validate source file for copying.
+ * @return file descriptor on success, -1 on error (sets *err)
+ */
+static int open_source_file(const char *src, off_t *filesize, int *err) {
+    int fd = open(src, O_RDONLY);
+    if (fd < 0) {
+        *err = -ENOENT;
+        return -1;
+    }
+    
+    struct stat st;
+    if (fstat(fd, &st) < 0 || !S_ISREG(st.st_mode)) {
+        close(fd);
+        *err = -ENOENT;
+        return -1;
+    }
+    
+    *filesize = st.st_size;
+    return fd;
+}
+
+/**
+ * Parse destination path and resolve parent directory.
+ * Handles trailing slashes by treating them as directory paths.
+ * @return 0 on success, negative errno on error
+ */
+static int resolve_destination(const char *dst, const char *src,
+                               int *parent_ino, char *name) {
+    char parent_path[PATH_MAX];
+    char tmp_dst[PATH_MAX];
+    strncpy(tmp_dst, dst, PATH_MAX - 1);
+    tmp_dst[PATH_MAX - 1] = '\0';
+
+    /* Trailing slash: treat as directory, use source basename */
+    if (strlen(tmp_dst) > 1 && tmp_dst[strlen(tmp_dst) - 1] == '/') {
+        int dir_ino = path_lookup(tmp_dst);
+        if (dir_ino < 0) return -ENOENT;
+        
+        struct ext2_inode *dir = get_inode(dir_ino);
+        if (!S_ISDIR(dir->i_mode)) return -ENOTDIR;
+        
+        const char *base = get_basename(src);
+        if (strlen(base) >= EXT2_NAME_LEN) return -ENAMETOOLONG;
+        
+        strncpy(name, base, EXT2_NAME_LEN);
+        *parent_ino = dir_ino;
+        return 0;
+    }
+
+    /* Normal path: split into parent and name */
+    int rc = split_parent_name(dst, parent_path, name);
+    if (rc != 0) return (rc == -ENAMETOOLONG) ? -ENAMETOOLONG : -EINVAL;
+
+    int pino = path_lookup(parent_path);
+    if (pino < 0) return -ENOENT;
+    
+    struct ext2_inode *parent = get_inode(pino);
+    if (!S_ISDIR(parent->i_mode)) return -ENOTDIR;
+    
+    *parent_ino = pino;
+    return 0;
+}
+
+/**
+ * Check if target exists and handle accordingly.
+ * Updates parent_ino/name if target is a directory (copy into it).
+ * @return 0 on success, negative errno on error
+ */
+static int handle_existing_target(const char *src, int *parent_ino, char *name,
+                                  int *target_ino, int *overwrite) {
+    struct ext2_inode *parent = get_inode(*parent_ino);
+    int existing = find_dir_entry(parent, name);
+    
+    *target_ino = -1;
+    *overwrite = 0;
+
+    if (existing == -ENOENT) return 0;  /* Doesn't exist, will create */
+    if (existing < 0) return existing;   /* Other error */
+
+    struct ext2_inode *target = get_inode(existing);
+    uint16_t type = target->i_mode & 0xF000;
+
+    /* Symlink: cannot overwrite */
+    if (type == EXT2_S_IFLNK) return -EEXIST;
+
+    /* Directory: copy file into it with source basename */
+    if (S_ISDIR(target->i_mode)) {
+        *parent_ino = existing;
+        parent = get_inode(existing);
+        
+        const char *base = get_basename(src);
+        if (strlen(base) >= EXT2_NAME_LEN) return -ENAMETOOLONG;
+        strncpy(name, base, EXT2_NAME_LEN);
+        
+        /* Check for existing file in target directory */
+        int inner = find_dir_entry(parent, name);
+        if (inner >= 0) {
+            struct ext2_inode *inner_node = get_inode(inner);
+            uint16_t inner_type = inner_node->i_mode & 0xF000;
+            if (inner_type == EXT2_S_IFLNK || S_ISDIR(inner_node->i_mode)) {
+                return -EEXIST;
+            }
+            *target_ino = inner;
+            *overwrite = 1;
+        }
+        return 0;
+    }
+
+    /* Regular file: overwrite */
+    if (type == EXT2_S_IFREG) {
+        *target_ino = existing;
+        *overwrite = 1;
+        return 0;
+    }
+
+    return -EEXIST;
+}
+
+/**
  * Copy a file from the host filesystem to the ext2 filesystem.
- *
- * This function handles multiple cases:
- * 1. dst is an existing directory: copy file with source basename into it
- * 2. dst ends with '/': treat as directory path
- * 3. dst is an existing file: overwrite it
- * 4. dst is an existing symlink: return EEXIST
- * 5. dst doesn't exist: create new file
- *
- * Error handling:
- * - ENOENT: Source file doesn't exist, invalid destination path
- * - EEXIST: Destination is an existing symlink
- * - ENOSPC: No free inodes or blocks
- * - ENAMETOOLONG: Target name exceeds EXT2_NAME_LEN
- * - EIO: Error reading source file
  *
  * @param src Path to source file on host filesystem
  * @param dst Path to destination in ext2 filesystem
@@ -53,214 +166,70 @@
  */
 int32_t ext2_fsal_cp(const char *src, const char *dst)
 {
-    if (src == NULL || dst == NULL) {
-        return -ENOENT;
-    }
+    if (src == NULL || dst == NULL) return -ENOENT;
 
-    /* Open and validate source file */
-    int src_fd = open(src, O_RDONLY);
-    if (src_fd < 0) {
-        return -ENOENT;
-    }
-    
-    struct stat st;
-    if (fstat(src_fd, &st) < 0) {
-        close(src_fd);
-        return -ENOENT;
-    }
-    
-    /* Only copy regular files */
-    if (!S_ISREG(st.st_mode)) {
-        close(src_fd);
-        return -ENOENT;
-    }
-    off_t filesize = st.st_size;
+    /* Step 1: Open and validate source file */
+    off_t filesize;
+    int err;
+    int src_fd = open_source_file(src, &filesize, &err);
+    if (src_fd < 0) return err;
 
-    /* Parse destination path */
-    char parent_path[PATH_MAX];
+    /* Step 2: Parse destination path */
+    int parent_ino;
     char name[EXT2_NAME_LEN];
-    int rc;
-
-    char tmp_dst[PATH_MAX];
-    strncpy(tmp_dst, dst, PATH_MAX);
-    tmp_dst[PATH_MAX - 1] = '\0';
     
-    /* Handle trailing slash: treat as directory */
-    if (strlen(tmp_dst) > 1 && tmp_dst[strlen(tmp_dst) - 1] == '/') {
-        int dir_ino = path_lookup(tmp_dst);
-        if (dir_ino < 0) {
-            close(src_fd);
-            return -ENOENT;
-        }
-        
-        struct ext2_inode *dir_inode = get_inode(dir_ino);
-        if (!S_ISDIR(dir_inode->i_mode)) {
-            close(src_fd);
-            return -ENOTDIR;
-        }
-        
-        /* Use source basename as target name */
-        snprintf(parent_path, PATH_MAX, "%s", tmp_dst);
-        const char *base = strrchr(src, '/');
-        if (base) base++;
-        else base = src;
-        
-        if (strlen(base) >= EXT2_NAME_LEN) {
-            close(src_fd);
-            return -ENAMETOOLONG;
-        }
-        strncpy(name, base, EXT2_NAME_LEN);
-    } else {
-        /* Split path into parent and name */
-        rc = split_parent_name(dst, parent_path, name);
-        if (rc != 0) {
-            close(src_fd);
-            return (rc == -ENAMETOOLONG ? -ENAMETOOLONG : -EINVAL);
-        }
-    }
-
-    /* Lookup parent directory */
-    int parent_ino = path_lookup(parent_path);
-    if (parent_ino < 0) {
+    int rc = resolve_destination(dst, src, &parent_ino, name);
+    if (rc != 0) {
         close(src_fd);
-        return -ENOENT;
+        return rc;
     }
-    
-    struct ext2_inode *parent_inode = get_inode(parent_ino);
-    if (!S_ISDIR(parent_inode->i_mode)) {
+
+    /* Step 3: Handle existing target */
+    int target_ino, overwrite;
+    rc = handle_existing_target(src, &parent_ino, name, &target_ino, &overwrite);
+    if (rc != 0) {
         close(src_fd);
-        return -ENOTDIR;
+        return rc;
     }
 
-    /* Check if target exists */
-    int existing = find_dir_entry(parent_inode, name);
-    int target_ino = -1;
-    int is_existing_file = 0;
-
-    if (existing >= 0) {
-        target_ino = existing;
-        struct ext2_inode *t_inode = get_inode(target_ino);
-        
-        /* Symlink: return EEXIST */
-        if ((t_inode->i_mode & 0xF000) == EXT2_S_IFLNK) {
-            close(src_fd);
-            return -EEXIST;
-        }
-        
-        /* Directory: copy file into it */
-        if (S_ISDIR(t_inode->i_mode)) {
-            parent_ino = target_ino;
-            parent_inode = get_inode(parent_ino);
-            
-            const char *base = strrchr(src, '/');
-            if (base) base++;
-            else base = src;
-            
-            if (strlen(base) >= EXT2_NAME_LEN) {
-                close(src_fd);
-                return -ENAMETOOLONG;
-            }
-            strncpy(name, base, EXT2_NAME_LEN);
-            
-            /* Check if file exists in target directory */
-            int exists2 = find_dir_entry(parent_inode, name);
-            if (exists2 >= 0) {
-                struct ext2_inode *e2 = get_inode(exists2);
-                if ((e2->i_mode & 0xF000) == EXT2_S_IFLNK) {
-                    close(src_fd);
-                    return -EEXIST;
-                }
-                if (S_ISDIR(e2->i_mode)) {
-                    close(src_fd);
-                    return -EEXIST;
-                }
-                target_ino = exists2;
-                is_existing_file = 1;
-            } else {
-                target_ino = -1;
-            }
-        } else if ((t_inode->i_mode & 0xF000) == EXT2_S_IFREG) {
-            /* Regular file: will overwrite */
-            is_existing_file = 1;
-        } else {
-            close(src_fd);
-            return -EEXIST;
-        }
-    } else if (existing == -ENOENT) {
-        target_ino = -1;
-    } else {
-        close(src_fd);
-        return existing;
-    }
-
-    /* Allocate or reuse inode */
-    int use_ino = -1;
-    if (is_existing_file && target_ino > 0) {
-        /* Overwrite: free existing blocks, reuse inode */
+    /* Step 4: Allocate or reuse inode */
+    int use_ino;
+    if (overwrite && target_ino > 0) {
         free_inode_blocks_locked(target_ino);
         use_ino = target_ino;
     } else {
-        /* Create new inode */
-        int new_ino = alloc_inode();
-        if (new_ino < 0) {
+        use_ino = alloc_inode();
+        if (use_ino < 0) {
             close(src_fd);
             return -ENOSPC;
         }
-        use_ino = new_ino;
     }
 
-    /* Initialize new inode */
+    /* Step 5: Initialize inode and write file data */
     struct ext2_inode new_inode;
-    memset(&new_inode, 0, sizeof(new_inode));
-    new_inode.i_mode = EXT2_S_IFREG | 0644;
-    new_inode.i_size = 0;
-    new_inode.i_links_count = 1;
-    new_inode.i_dtime = 0;
-    new_inode.i_ctime = (uint32_t)time(NULL);
-    new_inode.i_mtime = new_inode.i_ctime;
-    new_inode.i_atime = new_inode.i_ctime;
+    init_file_inode(&new_inode);
 
-    /* Write file data */
     if (lseek(src_fd, 0, SEEK_SET) < 0) {
         close(src_fd);
-        if (!is_existing_file && use_ino > 0) {
-            free_inode(use_ino);
-        }
+        if (!overwrite) free_inode(use_ino);
         return -EIO;
     }
 
     int wres = write_data_into_inode(src_fd, &new_inode, filesize);
     if (wres != 0) {
         close(src_fd);
-        /* Cleanup on error */
-        if (!is_existing_file && use_ino > 0) {
-            pthread_mutex_lock(&inode_locks[use_ino - 1]);
-            for (int i = 0; i < DIRECT_POINTERS; i++) {
-                if (new_inode.i_block[i] != 0) {
-                    free_block(new_inode.i_block[i]);
-                }
-            }
-            if (new_inode.i_block[INDIRECT_INDEX] != 0) {
-                uint32_t *ptrs = (uint32_t *) get_block(new_inode.i_block[INDIRECT_INDEX]);
-                int per_block = EXT2_BLOCK_SIZE / sizeof(uint32_t);
-                for (int i = 0; i < per_block; i++) {
-                    if (ptrs[i] != 0) {
-                        free_block(ptrs[i]);
-                    }
-                }
-                free_block(new_inode.i_block[INDIRECT_INDEX]);
-            }
-            pthread_mutex_unlock(&inode_locks[use_ino - 1]);
+        if (!overwrite) {
+            free_inode_blocks_locked(use_ino);
             free_inode(use_ino);
         }
         return wres;
     }
 
-    /* Write inode to disk */
+    /* Step 6: Write inode to disk */
     write_inode(use_ino, &new_inode);
 
-    /* Add directory entry for new file */
-    if (!is_existing_file) {
+    /* Step 7: Add directory entry for new file */
+    if (!overwrite) {
         int addc = add_dir_entry(parent_ino, name, use_ino, EXT2_FT_REG_FILE);
         if (addc < 0) {
             free_inode_blocks_locked(use_ino);

@@ -249,4 +249,12 @@ void free_inode_blocks_locked(int ino);
  */
 int write_data_into_inode(int host_fd, struct ext2_inode *inode, off_t filesize);
 
+/**
+ * Initialize a new file inode with proper mode, timestamps, and link count.
+ * Sets i_mode to regular file with 0644 permissions, i_links_count to 1,
+ * and sets ctime/mtime/atime to current time.
+ * @param inode Pointer to inode structure to initialize
+ */
+void init_file_inode(struct ext2_inode *inode);
+
 #endif /* CSC369_E2FS_H */
