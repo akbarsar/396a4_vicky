@@ -808,3 +808,152 @@ void init_file_inode(struct ext2_inode *inode) {
     inode->i_mtime = inode->i_ctime;
     inode->i_atime = inode->i_ctime;
 }
+
+/*
+ * =============================================================================
+ *                       COPY OPERATION HELPERS
+ * =============================================================================
+ */
+
+/**
+ * Extract basename from a path (last component after final '/').
+ */
+const char* get_path_basename(const char *path) {
+    const char *base = strrchr(path, '/');
+    return (base) ? base + 1 : path;
+}
+
+/**
+ * Open and validate a source file for copying.
+ * Only regular files can be copied.
+ *
+ * @param src      Path to source file on host filesystem
+ * @param filesize Output: size of the file in bytes
+ * @param err      Output: error code if open fails
+ * @return         File descriptor on success, -1 on error
+ */
+int open_source_file(const char *src, off_t *filesize, int *err) {
+    int fd = open(src, O_RDONLY);
+    if (fd < 0) {
+        *err = -ENOENT;
+        return -1;
+    }
+    
+    struct stat st;
+    if (fstat(fd, &st) < 0 || !S_ISREG(st.st_mode)) {
+        close(fd);
+        *err = -ENOENT;
+        return -1;
+    }
+    
+    *filesize = st.st_size;
+    return fd;
+}
+
+/**
+ * Parse destination path and resolve parent directory for copy operation.
+ * Handles trailing slashes by treating them as directory paths.
+ *
+ * @param dst        Destination path in ext2 filesystem
+ * @param src        Source path (used for basename extraction)
+ * @param parent_ino Output: parent directory inode number
+ * @param name       Output: target filename (EXT2_NAME_LEN buffer)
+ * @return           0 on success, negative errno on error
+ */
+int resolve_copy_destination(const char *dst, const char *src,
+                             int *parent_ino, char *name) {
+    char parent_path[PATH_MAX];
+    char tmp_dst[PATH_MAX];
+    strncpy(tmp_dst, dst, PATH_MAX - 1);
+    tmp_dst[PATH_MAX - 1] = '\0';
+
+    /* Trailing slash: treat as directory, use source basename */
+    if (strlen(tmp_dst) > 1 && tmp_dst[strlen(tmp_dst) - 1] == '/') {
+        int dir_ino = path_lookup(tmp_dst);
+        if (dir_ino < 0) return -ENOENT;
+        
+        struct ext2_inode *dir = get_inode(dir_ino);
+        if (!S_ISDIR(dir->i_mode)) return -ENOTDIR;
+        
+        const char *base = get_path_basename(src);
+        if (strlen(base) >= EXT2_NAME_LEN) return -ENAMETOOLONG;
+        
+        strncpy(name, base, EXT2_NAME_LEN);
+        *parent_ino = dir_ino;
+        return 0;
+    }
+
+    /* Normal path: split into parent and name */
+    int rc = split_parent_name(dst, parent_path, name);
+    if (rc != 0) return (rc == -ENAMETOOLONG) ? -ENAMETOOLONG : -EINVAL;
+
+    int pino = path_lookup(parent_path);
+    if (pino < 0) return -ENOENT;
+    
+    struct ext2_inode *parent = get_inode(pino);
+    if (!S_ISDIR(parent->i_mode)) return -ENOTDIR;
+    
+    *parent_ino = pino;
+    return 0;
+}
+
+/**
+ * Check if copy target exists and determine how to handle it.
+ * Updates parent_ino/name if target is a directory (copy into it).
+ *
+ * @param src        Source path (for basename extraction)
+ * @param parent_ino Input/Output: parent directory inode
+ * @param name       Input/Output: target name (may be updated)
+ * @param target_ino Output: existing target inode if overwriting
+ * @param overwrite  Output: 1 if overwriting existing file, 0 otherwise
+ * @return           0 on success, negative errno on error
+ */
+int check_copy_target(const char *src, int *parent_ino, char *name,
+                      int *target_ino, int *overwrite) {
+    struct ext2_inode *parent = get_inode(*parent_ino);
+    int existing = find_dir_entry(parent, name);
+    
+    *target_ino = -1;
+    *overwrite = 0;
+
+    if (existing == -ENOENT) return 0;  /* Doesn't exist, will create */
+    if (existing < 0) return existing;   /* Other error */
+
+    struct ext2_inode *target = get_inode(existing);
+    uint16_t type = target->i_mode & 0xF000;
+
+    /* Symlink: cannot overwrite */
+    if (type == EXT2_S_IFLNK) return -EEXIST;
+
+    /* Directory: copy file into it with source basename */
+    if (S_ISDIR(target->i_mode)) {
+        *parent_ino = existing;
+        parent = get_inode(existing);
+        
+        const char *base = get_path_basename(src);
+        if (strlen(base) >= EXT2_NAME_LEN) return -ENAMETOOLONG;
+        strncpy(name, base, EXT2_NAME_LEN);
+        
+        /* Check for existing file in target directory */
+        int inner = find_dir_entry(parent, name);
+        if (inner >= 0) {
+            struct ext2_inode *inner_node = get_inode(inner);
+            uint16_t inner_type = inner_node->i_mode & 0xF000;
+            if (inner_type == EXT2_S_IFLNK || S_ISDIR(inner_node->i_mode)) {
+                return -EEXIST;
+            }
+            *target_ino = inner;
+            *overwrite = 1;
+        }
+        return 0;
+    }
+
+    /* Regular file: overwrite */
+    if (type == EXT2_S_IFREG) {
+        *target_ino = existing;
+        *overwrite = 1;
+        return 0;
+    }
+
+    return -EEXIST;
+}

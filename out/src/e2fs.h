@@ -257,4 +257,56 @@ int write_data_into_inode(int host_fd, struct ext2_inode *inode, off_t filesize)
  */
 void init_file_inode(struct ext2_inode *inode);
 
+/*
+ * =============================================================================
+ *                       COPY OPERATION HELPERS
+ * =============================================================================
+ * Helper functions for ext2_fsal_cp.
+ */
+
+/**
+ * Extract basename from a path (last component after final '/').
+ * @param path Path string
+ * @return     Pointer to basename within the path string
+ */
+const char* get_path_basename(const char *path);
+
+/**
+ * Open and validate a source file for copying.
+ * Only regular files can be copied.
+ *
+ * @param src      Path to source file on host filesystem
+ * @param filesize Output: size of the file in bytes
+ * @param err      Output: error code if open fails
+ * @return         File descriptor on success, -1 on error
+ */
+int open_source_file(const char *src, off_t *filesize, int *err);
+
+/**
+ * Parse destination path and resolve parent directory for copy operation.
+ * Handles trailing slashes by treating them as directory paths.
+ *
+ * @param dst        Destination path in ext2 filesystem
+ * @param src        Source path (used for basename extraction)
+ * @param parent_ino Output: parent directory inode number
+ * @param name       Output: target filename (EXT2_NAME_LEN buffer)
+ * @return           0 on success, negative errno on error
+ */
+int resolve_copy_destination(const char *dst, const char *src,
+                             int *parent_ino, char *name);
+
+/**
+ * Check if copy target exists and determine how to handle it.
+ * Updates parent_ino/name if target is a directory (copy into it).
+ *
+ * @param src        Source path (for basename extraction)
+ * @param parent_ino Input/Output: parent directory inode
+ * @param name       Input/Output: target name (may be updated)
+ * @param target_ino Output: existing target inode if overwriting
+ * @param overwrite  Output: 1 if overwriting existing file, 0 otherwise
+ * @return           0 on success, negative errno on error
+ */
+int check_copy_target(const char *src, int *parent_ino, char *name,
+                      int *target_ino, int *overwrite);
+
 #endif /* CSC369_E2FS_H */
