@@ -53,10 +53,10 @@ int32_t ext2_fsal_mkdir(const char *path)
 {
     /* Validate input path */
     if (path == NULL) {
-        return -ENOENT;
+        return ENOENT;
     }
     if (path[0] != '/') {
-        return -ENOENT;  /* Must be absolute path */
+        return ENOENT;  /* Must be absolute path */
     }
 
     /* Parse path into parent directory and target name */
@@ -64,19 +64,19 @@ int32_t ext2_fsal_mkdir(const char *path)
     char name[EXT2_NAME_LEN];
     int rc = split_parent_name(path, parent_path, name);
     if (rc != 0) {
-        return (rc == -ENAMETOOLONG) ? -ENAMETOOLONG : -ENOENT;
+        return (rc == ENAMETOOLONG) ? ENAMETOOLONG : ENOENT;
     }
 
     /* Lookup parent directory inode */
     int parent_ino = path_lookup(parent_path);
     if (parent_ino < 0) {
-        return -ENOENT;
+        return ENOENT;
     }
 
     /* Verify parent is a directory */
     struct ext2_inode *parent_inode = get_inode(parent_ino);
     if (!S_ISDIR(parent_inode->i_mode)) {
-        return -ENOENT;
+        return ENOENT;
     }
 
     /* Check if target name already exists */
@@ -86,32 +86,32 @@ int32_t ext2_fsal_mkdir(const char *path)
         
         /* If existing entry is a directory, return EEXIST */
         if (S_ISDIR(exist_inode->i_mode)) {
-            return -EEXIST;
+            return EEXIST;
         }
         
         /* Handle trailing slash case: /foo/bar/blah/ where blah is a file */
         size_t plen = strlen(path);
         if (plen > 1 && path[plen - 1] == '/') {
-            return -ENOENT;
+            return ENOENT;
         }
         
         /* Entry exists as non-directory */
-        return -EEXIST;
-    } else if (existing != -ENOENT) {
+        return EEXIST;
+    } else if (existing != ENOENT) {
         return existing;  /* Propagate unexpected error */
     }
 
     /* Allocate inode for the new directory */
     int new_ino = alloc_inode();
     if (new_ino < 0) {
-        return -ENOSPC;
+        return ENOSPC;
     }
 
     /* Allocate data block for directory contents */
     int new_block = alloc_block();
     if (new_block < 0) {
         free_inode(new_ino);  /* Rollback inode allocation */
-        return -ENOSPC;
+        return ENOSPC;
     }
 
     /* Initialize new directory inode */

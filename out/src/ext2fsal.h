@@ -94,7 +94,7 @@ void ext2_fsal_destroy(void);
  * FILESYSTEM OPERATIONS API
  *
  * All operations return 0 on success or a negative error code on failure.
- * Common error codes: -ENOENT, -EEXIST, -EISDIR, -ENOSPC
+ * Common error codes: ENOENT, EEXIST, EISDIR, ENOSPC
  *===========================================================================*/
 
 /**

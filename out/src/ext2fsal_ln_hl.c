@@ -53,40 +53,40 @@ int32_t ext2_fsal_ln_hl(const char *src, const char *dst)
 {
     /* Validate input paths */
     if (!src || !dst) {
-        return -ENOENT;
+        return ENOENT;
     }
     if (src[0] != '/' || dst[0] != '/') {
-        return -ENOENT;
+        return ENOENT;
     }
 
     /* Lookup source file */
     int src_ino = path_lookup(src);
     if (src_ino < 0) {
-        return -ENOENT;
+        return ENOENT;
     }
 
     struct ext2_inode *src_inode = get_inode(src_ino);
 
     /* Cannot create hard links to directories */
     if (S_ISDIR(src_inode->i_mode)) {
-        return -EISDIR;
+        return EISDIR;
     }
 
     /* Parse destination path */
     char parent[PATH_MAX], name[EXT2_NAME_LEN];
     if (split_parent_name(dst, parent, name) < 0) {
-        return -ENOENT;
+        return ENOENT;
     }
 
     /* Lookup destination parent directory */
     int parent_ino = path_lookup(parent);
     if (parent_ino < 0) {
-        return -ENOENT;
+        return ENOENT;
     }
 
     struct ext2_inode *p_inode = get_inode(parent_ino);
     if (!S_ISDIR(p_inode->i_mode)) {
-        return -ENOENT;
+        return ENOENT;
     }
 
     /* Check if destination name already exists */
@@ -94,9 +94,9 @@ int32_t ext2_fsal_ln_hl(const char *src, const char *dst)
     if (exists_ino >= 0) {
         struct ext2_inode *exist_inode = get_inode(exists_ino);
         if (S_ISDIR(exist_inode->i_mode)) {
-            return -EISDIR;
+            return EISDIR;
         }
-        return -EEXIST;
+        return EEXIST;
     }
 
     /* Determine file type for directory entry */

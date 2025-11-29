@@ -39,7 +39,7 @@
  */
 int32_t ext2_fsal_cp(const char *src, const char *dst)
 {
-    if (src == NULL || dst == NULL) return -ENOENT;
+    if (src == NULL || dst == NULL) return ENOENT;
 
     /* Step 1: Open and validate source file */
     off_t filesize;
@@ -74,7 +74,7 @@ int32_t ext2_fsal_cp(const char *src, const char *dst)
         use_ino = alloc_inode();
         if (use_ino < 0) {
             close(src_fd);
-            return -ENOSPC;
+            return ENOSPC;
         }
     }
 
@@ -85,7 +85,7 @@ int32_t ext2_fsal_cp(const char *src, const char *dst)
     if (lseek(src_fd, 0, SEEK_SET) < 0) {
         close(src_fd);
         if (!overwrite) free_inode(use_ino);
-        return -EIO;
+        return EIO;
     }
 
     int wres = write_data_into_inode(src_fd, &new_inode, filesize);
@@ -108,7 +108,7 @@ int32_t ext2_fsal_cp(const char *src, const char *dst)
             free_inode_blocks_locked(use_ino);
             free_inode(use_ino);
             close(src_fd);
-            return -ENOSPC;
+            return ENOSPC;
         }
     }
 

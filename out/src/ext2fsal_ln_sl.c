@@ -58,10 +58,10 @@ int32_t ext2_fsal_ln_sl(const char *src, const char *dst)
 {
     /* Validate input paths */
     if (!src || !dst) {
-        return -ENOENT;
+        return ENOENT;
     }
     if (dst[0] != '/') {
-        return -ENOENT;  /* Destination must be absolute */
+        return ENOENT;  /* Destination must be absolute */
     }
 
     /* Note: Source path does NOT need to be valid or absolute!
@@ -70,18 +70,18 @@ int32_t ext2_fsal_ln_sl(const char *src, const char *dst)
     /* Parse destination path */
     char parent[PATH_MAX], name[EXT2_NAME_LEN];
     if (split_parent_name(dst, parent, name) < 0) {
-        return -ENOENT;
+        return ENOENT;
     }
 
     /* Lookup destination parent directory */
     int parent_ino = path_lookup(parent);
     if (parent_ino < 0) {
-        return -ENOENT;
+        return ENOENT;
     }
 
     struct ext2_inode *p_inode = get_inode(parent_ino);
     if (!S_ISDIR(p_inode->i_mode)) {
-        return -ENOTDIR;
+        return ENOTDIR;
     }
 
     /* Check if destination name already exists */
@@ -89,22 +89,22 @@ int32_t ext2_fsal_ln_sl(const char *src, const char *dst)
     if (exists >= 0) {
         struct ext2_inode *eino = get_inode(exists);
         if (S_ISDIR(eino->i_mode)) {
-            return -EISDIR;
+            return EISDIR;
         }
-        return -EEXIST;
+        return EEXIST;
     }
 
     /* Allocate inode for symlink */
     int new_ino = alloc_inode();
     if (new_ino < 0) {
-        return -ENOSPC;
+        return ENOSPC;
     }
 
     /* Allocate data block for target path (no fast symlinks per spec) */
     int new_block = alloc_block();
     if (new_block < 0) {
         free_inode(new_ino);
-        return -ENOSPC;
+        return ENOSPC;
     }
 
     /* Initialize symlink inode */

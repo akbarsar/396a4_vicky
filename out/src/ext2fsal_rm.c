@@ -51,10 +51,10 @@ int32_t ext2_fsal_rm(const char *path)
 {
     /* Validate input path */
     if (!path) {
-        return -ENOENT;
+        return ENOENT;
     }
     if (path[0] != '/') {
-        return -ENOENT;
+        return ENOENT;
     }
 
     /* Check for trailing slash */
@@ -65,36 +65,36 @@ int32_t ext2_fsal_rm(const char *path)
     char parent_path[PATH_MAX];
     char name[EXT2_NAME_LEN];
     if (split_parent_name(path, parent_path, name) < 0) {
-        return -ENOENT;
+        return ENOENT;
     }
 
     /* Lookup parent directory */
     int parent_ino = path_lookup(parent_path);
     if (parent_ino < 0) {
-        return -ENOENT;
+        return ENOENT;
     }
 
     struct ext2_inode *parent_inode = get_inode(parent_ino);
     if (!S_ISDIR(parent_inode->i_mode)) {
-        return -ENOENT;
+        return ENOENT;
     }
 
     /* Find target file in parent directory */
     int target_ino = find_dir_entry(parent_inode, name);
     if (target_ino < 0) {
-        return -ENOENT;
+        return ENOENT;
     }
 
     struct ext2_inode *target_inode = get_inode(target_ino);
 
     /* Cannot remove directories */
     if (S_ISDIR(target_inode->i_mode)) {
-        return -EISDIR;
+        return EISDIR;
     }
 
     /* Trailing slash on non-directory is an error */
     if (has_trailing_slash) {
-        return -ENOENT;
+        return ENOENT;
     }
 
     size_t name_len = strlen(name);
@@ -148,7 +148,7 @@ int32_t ext2_fsal_rm(const char *path)
     pthread_mutex_unlock(&inode_locks[parent_ino - 1]);
 
     if (!found) {
-        return -ENOENT;
+        return ENOENT;
     }
 
     /* Update target inode: decrement link count */

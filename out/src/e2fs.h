@@ -190,7 +190,7 @@ int add_dir_entry(int parent_ino, const char* name, int child_ino, uint8_t type)
  * Find a directory entry by name within a directory.
  * @param dir  Pointer to the directory inode
  * @param name Name to search for
- * @return     Inode number of the entry on success, -ENOENT if not found
+ * @return     Inode number of the entry on success, ENOENT if not found
  */
 int find_dir_entry(struct ext2_inode *dir, const char *name);
 
@@ -245,7 +245,7 @@ void free_inode_blocks_locked(int ino);
  * @param host_fd  Open file descriptor to read from
  * @param inode    Pointer to inode to populate (block pointers set here)
  * @param filesize Total size of file to write
- * @return         0 on success, -ENOSPC or -EIO on error
+ * @return         0 on success, ENOSPC or EIO on error
  */
 int write_data_into_inode(int host_fd, struct ext2_inode *inode, off_t filesize);
 

@@ -330,7 +330,7 @@ static struct ext2_dir_entry* find_last_dir_entry(char* blk) {
  * @param name           Name of new entry
  * @param name_len       Length of name
  * @param type           File type
- * @return               Block number on success, -ENOSPC if no blocks available
+ * @return               Block number on success, ENOSPC if no blocks available
  */
 static int create_entry_in_new_block(struct ext2_inode* dir_inode, int block_index,
                               int child_ino, const char* name, int name_len, 
@@ -338,7 +338,7 @@ static int create_entry_in_new_block(struct ext2_inode* dir_inode, int block_ind
     /* Allocate a new block */
     int new_block = alloc_block();
     if (new_block < 0) {
-        return -ENOSPC;
+        return ENOSPC;
     }
 
     /* Update directory inode to reference new block */
@@ -381,7 +381,7 @@ int add_dir_entry(int parent_ino, const char* name, int child_ino, uint8_t type)
     
     /* Verify parent is a directory */
     if (!S_ISDIR(dir_inode->i_mode)) {
-        return -ENOTDIR;
+        return ENOTDIR;
     }
 
     int name_len = strlen(name);
@@ -427,7 +427,7 @@ int add_dir_entry(int parent_ino, const char* name, int child_ino, uint8_t type)
         if ((char*)last + last->rec_len > blk + EXT2_BLOCK_SIZE) {
             pthread_mutex_unlock(&block_locks[block_num]);
             pthread_mutex_unlock(&inode_locks[parent_ino - 1]);
-            return -ENOSPC;
+            return ENOSPC;
         }
 
         if (remain >= needed) {
@@ -454,7 +454,7 @@ int add_dir_entry(int parent_ino, const char* name, int child_ino, uint8_t type)
     if (last_block_index + 1 >= DIRECT_POINTERS) {
         /* Out of direct block pointers */
         pthread_mutex_unlock(&inode_locks[parent_ino - 1]);
-        return -ENOSPC;
+        return ENOSPC;
     }
 
     int result = create_entry_in_new_block(dir_inode, last_block_index + 1,
@@ -474,7 +474,7 @@ int add_dir_entry(int parent_ino, const char* name, int child_ino, uint8_t type)
  *
  * @param dir  Pointer to the directory inode
  * @param name Name to search for
- * @return     Inode number of the entry on success, -ENOENT if not found
+ * @return     Inode number of the entry on success, ENOENT if not found
  */
 int find_dir_entry(struct ext2_inode *dir, const char *name) {
     size_t target_len = strlen(name);
@@ -501,7 +501,7 @@ int find_dir_entry(struct ext2_inode *dir, const char *name) {
         }
     }
 
-    return -ENOENT;  /* Not found */
+    return ENOENT;  /* Not found */
 }
 
 /*
@@ -519,12 +519,12 @@ int find_dir_entry(struct ext2_inode *dir, const char *name) {
  */
 int path_lookup(const char *path) {
     if (path == NULL) {
-        return -ENOENT;
+        return ENOENT;
     }
 
     /* Ensure the path is absolute (must start with '/') */
     if (path[0] != '/') {
-        return -ENOENT;
+        return ENOENT;
     }
 
     /* Create a writable copy for tokenization */
@@ -562,13 +562,13 @@ int path_lookup(const char *path) {
 
         /* Current must be a directory to continue */
         if (!S_ISDIR(curr_inode->i_mode)) {
-            return -ENOTDIR;
+            return ENOTDIR;
         }
 
         /* Find the child entry */
         int child_ino = find_dir_entry(curr_inode, token);
         if (child_ino < 0) {
-            return -ENOENT;
+            return ENOENT;
         }
 
         curr_ino = child_ino;
@@ -605,7 +605,7 @@ void strip_trailing_slashes(char *s) {
  */
 int split_parent_name(const char *path, char *parent_buf, char *name_buf) {
     if (path == NULL || path[0] != '/') {
-        return -ENOENT;  /* Must be absolute path */
+        return ENOENT;  /* Must be absolute path */
     }
 
     /* Copy and normalize the path */
@@ -616,13 +616,13 @@ int split_parent_name(const char *path, char *parent_buf, char *name_buf) {
 
     /* Cannot split root "/" */
     if (strcmp(tmp, "/") == 0) {
-        return -ENOENT;
+        return ENOENT;
     }
 
     /* Find the last '/' separator */
     char *last = strrchr(tmp, '/');
     if (last == NULL) {
-        return -ENOENT;
+        return ENOENT;
     }
 
     /* Extract parent path */
@@ -633,7 +633,7 @@ int split_parent_name(const char *path, char *parent_buf, char *name_buf) {
     } else {
         size_t plen = last - tmp;
         if (plen >= PATH_MAX) {
-            return -EINVAL;
+            return EINVAL;
         }
         strncpy(parent_buf, tmp, plen);
         parent_buf[plen] = '\0';
@@ -642,10 +642,10 @@ int split_parent_name(const char *path, char *parent_buf, char *name_buf) {
     /* Extract final name */
     char *name = last + 1;
     if (strlen(name) == 0) {
-        return -EINVAL;
+        return EINVAL;
     }
     if (strlen(name) >= EXT2_NAME_LEN) {
-        return -ENAMETOOLONG;
+        return ENAMETOOLONG;
     }
     strncpy(name_buf, name, EXT2_NAME_LEN);
     name_buf[EXT2_NAME_LEN - 1] = '\0';
@@ -704,7 +704,7 @@ void free_inode_blocks_locked(int ino) {
  * @param host_fd  Open file descriptor to read from
  * @param inode    Pointer to inode to populate (block pointers set here)
  * @param filesize Total size of file to write
- * @return         0 on success, -ENOSPC or -EIO on error
+ * @return         0 on success, ENOSPC or EIO on error
  */
 int write_data_into_inode(int host_fd, struct ext2_inode *inode, off_t filesize) {
     ssize_t remaining = filesize;
@@ -719,7 +719,7 @@ int write_data_into_inode(int host_fd, struct ext2_inode *inode, off_t filesize)
     for (int di = 0; di < DIRECT_POINTERS && remaining > 0; di++) {
         int b = alloc_block();
         if (b < 0) {
-            return -ENOSPC;
+            return ENOSPC;
         }
         inode->i_block[di] = b;
 
@@ -727,7 +727,7 @@ int write_data_into_inode(int host_fd, struct ext2_inode *inode, off_t filesize)
         char buf[EXT2_BLOCK_SIZE];
         ssize_t r = read(host_fd, buf, EXT2_BLOCK_SIZE);
         if (r < 0) {
-            return -EIO;
+            return EIO;
         }
         
         /* Zero-fill remainder of block if needed */
@@ -744,14 +744,14 @@ int write_data_into_inode(int host_fd, struct ext2_inode *inode, off_t filesize)
     if (remaining > 0) {
         int indirect_blk = alloc_block();
         if (indirect_blk < 0) {
-            return -ENOSPC;
+            return ENOSPC;
         }
         inode->i_block[INDIRECT_INDEX] = indirect_blk;
 
         /* Allocate array for block pointers */
         uint32_t *ptrs = (uint32_t *) malloc(EXT2_BLOCK_SIZE);
         if (!ptrs) {
-            return -EIO;
+            return EIO;
         }
         memset(ptrs, 0, EXT2_BLOCK_SIZE);
 
@@ -760,7 +760,7 @@ int write_data_into_inode(int host_fd, struct ext2_inode *inode, off_t filesize)
             int b = alloc_block();
             if (b < 0) {
                 free(ptrs);
-                return -ENOSPC;
+                return ENOSPC;
             }
             ptrs[i] = b;
 
@@ -768,7 +768,7 @@ int write_data_into_inode(int host_fd, struct ext2_inode *inode, off_t filesize)
             ssize_t r = read(host_fd, buf, EXT2_BLOCK_SIZE);
             if (r < 0) {
                 free(ptrs);
-                return -EIO;
+                return EIO;
             }
             if (r < EXT2_BLOCK_SIZE) {
                 memset(buf + r, 0, EXT2_BLOCK_SIZE - r);
@@ -835,14 +835,14 @@ const char* get_path_basename(const char *path) {
 int open_source_file(const char *src, off_t *filesize, int *err) {
     int fd = open(src, O_RDONLY);
     if (fd < 0) {
-        *err = -ENOENT;
+        *err = ENOENT;
         return -1;
     }
     
     struct stat st;
     if (fstat(fd, &st) < 0 || !S_ISREG(st.st_mode)) {
         close(fd);
-        *err = -ENOENT;
+        *err = ENOENT;
         return -1;
     }
     
@@ -870,13 +870,13 @@ int resolve_copy_destination(const char *dst, const char *src,
     /* Trailing slash: treat as directory, use source basename */
     if (strlen(tmp_dst) > 1 && tmp_dst[strlen(tmp_dst) - 1] == '/') {
         int dir_ino = path_lookup(tmp_dst);
-        if (dir_ino < 0) return -ENOENT;
+        if (dir_ino < 0) return ENOENT;
         
         struct ext2_inode *dir = get_inode(dir_ino);
-        if (!S_ISDIR(dir->i_mode)) return -ENOTDIR;
+        if (!S_ISDIR(dir->i_mode)) return ENOTDIR;
         
         const char *base = get_path_basename(src);
-        if (strlen(base) >= EXT2_NAME_LEN) return -ENAMETOOLONG;
+        if (strlen(base) >= EXT2_NAME_LEN) return ENAMETOOLONG;
         
         strncpy(name, base, EXT2_NAME_LEN);
         *parent_ino = dir_ino;
@@ -885,13 +885,13 @@ int resolve_copy_destination(const char *dst, const char *src,
 
     /* Normal path: split into parent and name */
     int rc = split_parent_name(dst, parent_path, name);
-    if (rc != 0) return (rc == -ENAMETOOLONG) ? -ENAMETOOLONG : -EINVAL;
+    if (rc != 0) return (rc == ENAMETOOLONG) ? ENAMETOOLONG : EINVAL;
 
     int pino = path_lookup(parent_path);
-    if (pino < 0) return -ENOENT;
+    if (pino < 0) return ENOENT;
     
     struct ext2_inode *parent = get_inode(pino);
-    if (!S_ISDIR(parent->i_mode)) return -ENOTDIR;
+    if (!S_ISDIR(parent->i_mode)) return ENOTDIR;
     
     *parent_ino = pino;
     return 0;
@@ -916,14 +916,14 @@ int check_copy_target(const char *src, int *parent_ino, char *name,
     *target_ino = -1;
     *overwrite = 0;
 
-    if (existing == -ENOENT) return 0;  /* Doesn't exist, will create */
+    if (existing == ENOENT) return 0;  /* Doesn't exist, will create */
     if (existing < 0) return existing;   /* Other error */
 
     struct ext2_inode *target = get_inode(existing);
     uint16_t type = target->i_mode & 0xF000;
 
     /* Symlink: cannot overwrite */
-    if (type == EXT2_S_IFLNK) return -EEXIST;
+    if (type == EXT2_S_IFLNK) return EEXIST;
 
     /* Directory: copy file into it with source basename */
     if (S_ISDIR(target->i_mode)) {
@@ -931,7 +931,7 @@ int check_copy_target(const char *src, int *parent_ino, char *name,
         parent = get_inode(existing);
         
         const char *base = get_path_basename(src);
-        if (strlen(base) >= EXT2_NAME_LEN) return -ENAMETOOLONG;
+        if (strlen(base) >= EXT2_NAME_LEN) return ENAMETOOLONG;
         strncpy(name, base, EXT2_NAME_LEN);
         
         /* Check for existing file in target directory */
@@ -940,7 +940,7 @@ int check_copy_target(const char *src, int *parent_ino, char *name,
             struct ext2_inode *inner_node = get_inode(inner);
             uint16_t inner_type = inner_node->i_mode & 0xF000;
             if (inner_type == EXT2_S_IFLNK || S_ISDIR(inner_node->i_mode)) {
-                return -EEXIST;
+                return EEXIST;
             }
             *target_ino = inner;
             *overwrite = 1;
@@ -955,5 +955,5 @@ int check_copy_target(const char *src, int *parent_ino, char *name,
         return 0;
     }
 
-    return -EEXIST;
+    return EEXIST;
 }
