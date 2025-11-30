@@ -1,0 +1,8 @@
+# Test run outputs
+A4-self-test/A4-self-test/runs/
+A4-self-test/A4-self-test/results/
+
+# Compiled binaries and libraries that should be in out/ already
+*.o
+*.so
+*.a
