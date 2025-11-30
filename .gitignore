@@ -1,0 +1,17 @@
+# Build artifacts
+*.o
+*.so
+*.a
+
+# Test run artifacts  
+A4-self-test/A4-self-test/out/
+A4-self-test/A4-self-test/runs/*.img
+A4-self-test/A4-self-test/results/*.txt
+
+# Keep the original out directory
+!out/
+
+# Temporary files
+*.tmp
+*~
+.DS_Store
