@@ -82,14 +82,35 @@ int32_t ext2_fsal_ln_hl(const char *src, const char *dst) {
 		file_type = EXT2_FT_SYMLINK;
 	}
 
-	// add new directory entry pointing to source inode
-	int retval = add_dir_entry(parent_ino, name, src_ino, file_type);
-	if (retval != 0) return retval;
+	// lock source inode first and increment link count preemptively.
+	// this prevents the source from being deleted while we add the directory entry.
+	mutex_lock(&inode_locks[src_ino - 1]);
+
+	// re-verify source inode is still valid after acquiring lock
+	if (src_inode->i_links_count == 0 || src_inode->i_dtime != 0) {
+		mutex_unlock(&inode_locks[src_ino - 1]);
+		return ENOENT;
+	}
+
+	// re-verify source is not a directory
+	if (S_ISDIR(src_inode->i_mode)) {
+		mutex_unlock(&inode_locks[src_ino - 1]);
+		return EISDIR;
+	}
 
 	// increment source inode's link count
-	mutex_lock(&inode_locks[src_ino - 1]);
 	src_inode->i_links_count++;
 	mutex_unlock(&inode_locks[src_ino - 1]);
-	
+
+	// add the directory entry
+	int retval = add_dir_entry(parent_ino, name, src_ino, file_type);
+	if (retval != 0) {
+		// failed to add entry, decrement link count
+		mutex_lock(&inode_locks[src_ino - 1]);
+		src_inode->i_links_count--;
+		mutex_unlock(&inode_locks[src_ino - 1]);
+		return retval;
+	}
+
 	return 0;
 }

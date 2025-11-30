@@ -82,8 +82,16 @@ int32_t ext2_fsal_rm(const char *path) {
 	// lock parent for directory modification
 	mutex_lock(&inode_locks[parent_ino - 1]);
 
+	// re-verify parent is still a directory after acquiring lock
+	if (!S_ISDIR(parent_inode->i_mode)) {
+		mutex_unlock(&inode_locks[parent_ino - 1]);
+		return ENOENT;
+	}
+
+
 	// remove directory entry by name
 	int found = 0;
+	int found_target_ino = -1;  // store the inode we find
 	for (int i = 0; i < DIRECT_POINTERS && !found; i++) {
 		int block_num = parent_inode->i_block[i];
 		if (block_num == 0) continue;
@@ -98,6 +106,17 @@ int32_t ext2_fsal_rm(const char *path) {
 		// search for entry with matching name
 		while ((uint8_t*)entry < blk_end && entry->rec_len > 0) {
 			if (entry->inode != 0 && (size_t)entry->name_len == name_len && memcmp(entry->name, name, name_len) == 0) {
+
+				// re-verify: check if the found entry is a directory
+				found_target_ino = entry->inode;
+				struct ext2_inode *found_inode = get_inode(found_target_ino);
+
+				if (S_ISDIR(found_inode->i_mode)) {
+					// cannot remove directories with rm
+					mutex_unlock(&block_locks[block_num]);
+					mutex_unlock(&inode_locks[parent_ino - 1]);
+					return EISDIR;
+				}
 
 				found = 1;
 
@@ -125,28 +144,29 @@ int32_t ext2_fsal_rm(const char *path) {
 
 	if (!found) return ENOENT;
 
-	// update target inode: decrement link count
-	mutex_lock(&inode_locks[target_ino - 1]);
+	// update target inode: decrement link count (use the inode we actually found)
+	mutex_lock(&inode_locks[found_target_ino - 1]);
 
-	target_inode->i_links_count--;
+	struct ext2_inode *actual_target = get_inode(found_target_ino);
+	actual_target->i_links_count--;
 
 	// if no more links, free the file
-	if (target_inode->i_links_count == 0) {
+	if (actual_target->i_links_count == 0) {
 
 		// set deletion time
-		target_inode->i_dtime = (unsigned int)time(NULL);
+		actual_target->i_dtime = (unsigned int)time(NULL);
 
 		// free direct blocks
 		for (int i = 0; i < DIRECT_POINTERS; i++) {
-			if (target_inode->i_block[i] != 0) {
-				free_block(target_inode->i_block[i]);
-				target_inode->i_block[i] = 0;
+			if (actual_target->i_block[i] != 0) {
+				free_block(actual_target->i_block[i]);
+				actual_target->i_block[i] = 0;
 			}
 		}
 
 		// free indirect block and its referenced blocks
-		if (target_inode->i_block[INDIRECT_INDEX] != 0) {
-			int indirect_blk = target_inode->i_block[INDIRECT_INDEX];
+		if (actual_target->i_block[INDIRECT_INDEX] != 0) {
+			int indirect_blk = actual_target->i_block[INDIRECT_INDEX];
 			uint32_t *ptrs = (uint32_t *) get_block(indirect_blk);
 			int per_block = EXT2_BLOCK_SIZE / sizeof(uint32_t);
 			
@@ -157,20 +177,20 @@ int32_t ext2_fsal_rm(const char *path) {
 			}
 
 			free_block(indirect_blk);
-			target_inode->i_block[INDIRECT_INDEX] = 0;
+			actual_target->i_block[INDIRECT_INDEX] = 0;
 		}
 
-		target_inode->i_blocks = 0;
-		target_inode->i_size = 0;
+		actual_target->i_blocks = 0;
+		actual_target->i_size = 0;
 
-		mutex_unlock(&inode_locks[target_ino - 1]);
+		mutex_unlock(&inode_locks[found_target_ino - 1]);
 
 		// free the inode
-		free_inode(target_ino);
+		free_inode(found_target_ino);
 	}
 	else {
 		// other hard links still exist
-		mutex_unlock(&inode_locks[target_ino - 1]);
+		mutex_unlock(&inode_locks[found_target_ino - 1]);
 	}
 
 	return 0;

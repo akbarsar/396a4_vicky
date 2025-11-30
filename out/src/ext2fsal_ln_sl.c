@@ -97,11 +97,11 @@ int32_t ext2_fsal_ln_sl(const char *src, const char *dst) {
 	write_inode(new_ino, &new_inode);
 	
 	// add symlink entry to parent directory
-	int r = add_dir_entry(parent_ino, name, new_ino, EXT2_FT_SYMLINK);
-	if (r < 0) {
+	int add_retval = add_dir_entry(parent_ino, name, new_ino, EXT2_FT_SYMLINK);
+	if (add_retval < 0) {
 		free_block(new_block);
 		free_inode(new_ino);
-		return r;
+		return add_retval;
 	}
 	
 	return 0;
