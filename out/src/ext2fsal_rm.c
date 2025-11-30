@@ -36,7 +36,7 @@ int32_t ext2_fsal_rm(const char *path) {
 	// validate input path
 	if (!path) return ENOENT;
 
-	if (path[0] !- '/') return ENOENT;
+	if (path[0] != '/') return ENOENT;
 
 	// check for trailing slash
 	size_t parent_len = strlen(path);

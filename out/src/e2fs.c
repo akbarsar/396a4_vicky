@@ -235,7 +235,7 @@ void write_inode(int ino, struct ext2_inode* inode) {
  * Allocates a new data block from the bitmap.
  * Updates both group descriptor and superblock free block counts.
  *
- * Returns: the block number (0-based) on success, or -1 if no free 
+ * Returns: the block number (1-based) on success, or -1 if no free 
  * blocks.
  */
 int alloc_block() {
@@ -252,8 +252,8 @@ int alloc_block() {
 
 			mutex_unlock(&block_bitmap_lock);
 
-			// return block number
-			return i;
+			// return block number (1-based)
+			return i + 1;
 		}
 	}
 
@@ -266,32 +266,32 @@ int alloc_block() {
 
 /**
  * Returns: a pointer to the start of the data block with block 
- * number block_num (0-based).
+ * number block_num (1-based).
  */
 char* get_block(int block_num) {
 	return (char*)(fs + block_num * EXT2_BLOCK_SIZE);
 }
 
 /*
- * Writes data to the block with block number block_num (0-based).
+ * Writes data to the block with block number block_num (1-based).
  */
 void write_block(int block_num, char* data) {
-	mutex_lock(&block_locks[block_num]);
+	mutex_lock(&block_locks[block_num - 1]);
 
 	char* block = get_block(block_num);
 	memcpy(block, data, EXT2_BLOCK_SIZE);
 
-	mutex_unlock(&block_locks[block_num]);
+	mutex_unlock(&block_locks[block_num - 1]);
 }
 
 /*
- * Frees the data block with block number block_num (0-based) and 
+ * Frees the data block with block number block_num (1-based) and 
  * updates filesystem counts.
  */
 void free_block(int block_num) {
 	mutex_lock(&block_bitmap_lock);
 
-	clear_bit(block_bitmap, block_num);
+	clear_bit(block_bitmap, block_num - 1);
 	group_desc->bg_free_blocks_count++;
 	superblock->s_free_blocks_count++;
 
@@ -815,6 +815,7 @@ int write_data_into_inode(int host_fd, struct ext2_inode *inode, off_t filesize)
 		int indirect_blk = alloc_block();
 		if (indirect_blk < 0) return ENOSPC;
 		inode->i_block[INDIRECT_INDEX] = indirect_blk;
+		written_blocks++;  // count the indirect block itself
 
 		// allocate array for block pointers
 		uint32_t *ptrs = (uint32_t *) malloc(EXT2_BLOCK_SIZE);
