@@ -18,6 +18,12 @@
 #include <stddef.h>
 #include <pthread.h>
 
+// ----------------- FILESYSTEM STRUCTURE POINTERS -------------------
+
+// These global pointers reference key ext2 data structures in the 
+// mmapped disk image. They are initialized in ext2_fsal_init().
+// See ext2fsal.c documentation for explanations of specific 
+// variables.
 
 extern struct ext2_super_block *superblock;
 extern struct ext2_group_desc *group_desc;
@@ -31,13 +37,14 @@ extern int num_inodes;
 extern int num_blocks;
 
 
-// --------- LOCK STUFF ---------
+// ------------------ SYNCHRONIZATION PRIMITIVES --------------------
+
 extern pthread_mutex_t* inode_locks;
 extern pthread_mutex_t* block_locks;
 extern pthread_mutex_t inode_bitmap_lock;
 extern pthread_mutex_t block_bitmap_lock;
 
-
+// --------------------- FILESYSTEM OPERATIONS -----------------------
 
 // Initializes the ext2 file system
 // Called only once during the server initialization

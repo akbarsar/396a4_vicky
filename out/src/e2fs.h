@@ -28,32 +28,52 @@
 #define INDIRECT_INDEX  12
 #define TOTAL_POINTERS  15
 #define PATH_MAX 4096
+
+// BITMAP OPERATIONS
 int test_bit(uint8_t *bitmap, int n);
 void set_bit(uint8_t *bitmap, int n);
 void clear_bit(uint8_t *bitmap, int n);
 
 
-// lock init and cleanup
+// SYNCHRONIZATION PRIMITIVES
 void locks_init(int num_inodes, int num_blocks);
 void locks_destroy();
+void mutex_lock(pthread_mutex_t *mutex);
+void mutex_unlock(pthread_mutex_t *mutex);
 
+// INODE ALLOCATION & ACCESS
 int alloc_inode();
+void free_inode(int ino);
 int alloc_block();
 struct ext2_inode* get_inode(int ino);
 void write_inode(int ino, struct ext2_inode* inode);
+
+// BLOCK ALLOCATION & ACCESS
+int alloc_block(void);
+void free_block(int block_num);
 char* get_block(int block_num);
 void write_block(int block_num, char* data);
+
+// DIRECTORY OPERATIONS
 struct ext2_dir_entry *next_dir_entry(struct ext2_dir_entry *entry);
+int dir_entry_rec_len(int name_len);
 int add_dir_entry(int parent_ino, const char* name, int child_ino, uint8_t type);
 int find_dir_entry(struct ext2_inode *dir, const char *name);
-int path_lookup(const char *path);
 
-int dir_entry_rec_len(int name_len);
-void free_inode(int ino);
-void free_block(int block_num);
+// PATH OPERATIONS
+int path_lookup(const char *path);
 void strip_trailing_slashes(char *s);
 int split_parent_name(const char *path, char *parent_buf, char *name_buf);
+const char* get_path_basename(const char *path);
 
+// FILE DATA OPERATIONS
 void free_inode_blocks_locked(int ino);
 int write_data_into_inode(int host_fd, struct ext2_inode *inode, off_t filesize);
-#endif
+void init_file_inode(struct ext2_inode *inode);
+
+// COPY HELPERS
+int open_source_file(const char *src, off_t *filesize, int *err);
+int check_copy_target(const char *src, int *parent_ino, char *name, int *target_ino, int *overwrite);
+int resolve_copy_destination(const char *dst, const char *src, int *parent_ino, char *name);
+
+#endif /* CSC369_E2FS_H */
