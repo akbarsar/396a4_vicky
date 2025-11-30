@@ -35,17 +35,11 @@ int32_t ext2_fsal_cp(const char *src, const char *dst) {
 	
 	if (src == NULL || dst == NULL) return ENOENT;
 
-	// Acquire global lock to serialize filesystem operations
-	mutex_lock(&global_fs_lock);
-
 	// STEP 1: open and validate source file
 	off_t filesize;
 	int err;
 	int src_fd = open_source_file(src, &filesize, &err);
-	if (src_fd < 0) {
-		mutex_unlock(&global_fs_lock);
-		return errno;
-	}
+	if (src_fd < 0) return errno;
 
 	// STEP 2: parse destination path
 	int parent_ino;
@@ -54,7 +48,6 @@ int32_t ext2_fsal_cp(const char *src, const char *dst) {
 	int retval = resolve_copy_destination(dst, src, &parent_ino, name);
 	if (retval != 0) {
 		close(src_fd);
-		mutex_unlock(&global_fs_lock);
 		return retval;
 	}
 
@@ -63,7 +56,6 @@ int32_t ext2_fsal_cp(const char *src, const char *dst) {
 	retval = check_copy_target(src, &parent_ino, name, &target_ino, &overwrite);
 	if (retval != 0) {
 		close(src_fd);
-		mutex_unlock(&global_fs_lock);
 		return retval;
 	}
 
@@ -77,7 +69,6 @@ int32_t ext2_fsal_cp(const char *src, const char *dst) {
 		use_ino = alloc_inode();
 		if (use_ino < 0) {
 			close(src_fd);
-			mutex_unlock(&global_fs_lock);
 			return ENOSPC;
 		}
 	}
@@ -89,7 +80,6 @@ int32_t ext2_fsal_cp(const char *src, const char *dst) {
 	if (lseek(src_fd, 0, SEEK_SET) < 0) {
 		close(src_fd);
 		if (!overwrite) free_inode(use_ino);
-		mutex_unlock(&global_fs_lock);
 		return EIO;
 	}
 
@@ -101,7 +91,6 @@ int32_t ext2_fsal_cp(const char *src, const char *dst) {
 			free_inode_blocks_locked(use_ino);
 			free_inode(use_ino);
 		}
-		mutex_unlock(&global_fs_lock);
 		return write_retval;
 	}
 
@@ -115,13 +104,11 @@ int32_t ext2_fsal_cp(const char *src, const char *dst) {
 			free_inode_blocks_locked(use_ino);
 			free_inode(use_ino);
 			close(src_fd);
-			mutex_unlock(&global_fs_lock);
 			return add_retval;
 		}
 	}
 
 	close(src_fd);
-	mutex_unlock(&global_fs_lock);
 	return 0;
 
 }

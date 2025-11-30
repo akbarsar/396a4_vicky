@@ -44,44 +44,26 @@ int32_t ext2_fsal_ln_hl(const char *src, const char *dst) {
 		return ENOENT;
 	}
 
-	// Acquire global lock to serialize filesystem operations
-	mutex_lock(&global_fs_lock);
-
 	char parent[PATH_MAX], name[EXT2_NAME_LEN];
 	
 	// lookup source file
 	int src_ino = path_lookup(src);
-	if (src_ino < 0) {
-		mutex_unlock(&global_fs_lock);
-		return ENOENT;
-	}
+	if (src_ino < 0) return ENOENT;
 
 	struct ext2_inode *src_inode = get_inode(src_ino);
 
 	// cannot create hard links for directories
-	if (S_ISDIR(src_inode->i_mode)) {
-		mutex_unlock(&global_fs_lock);
-		return EISDIR;
-	}
+	if (S_ISDIR(src_inode->i_mode)) return EISDIR;
 
 	// parse destination path
-	if (split_parent_name(dst, parent, name) < 0) {
-		mutex_unlock(&global_fs_lock);
-		return ENOENT;
-	}
+	if (split_parent_name(dst, parent, name) < 0) return ENOENT;
 
 	// lookup destination parent directory
 	int parent_ino = path_lookup(parent);
-	if (parent_ino < 0) {
-		mutex_unlock(&global_fs_lock);
-		return ENOENT;
-	}
+	if (parent_ino < 0) return ENOENT;
 
 	struct ext2_inode *p_inode = get_inode(parent_ino);
-	if (!S_ISDIR(p_inode->i_mode)) {
-		mutex_unlock(&global_fs_lock);
-		return ENOENT;
-	}
+	if (!S_ISDIR(p_inode->i_mode)) return ENOENT;
 
 	// check if destination name already exists
 	int exists_ino = find_dir_entry(p_inode, name);
@@ -89,10 +71,8 @@ int32_t ext2_fsal_ln_hl(const char *src, const char *dst) {
 		struct ext2_inode *exist_inode = get_inode(exists_ino);
 		// return EISDIR if target exists and is a directory
 		if (S_ISDIR(exist_inode->i_mode)) {
-			mutex_unlock(&global_fs_lock);
 			return EISDIR;
 		}
-		mutex_unlock(&global_fs_lock);
 		return EEXIST;
 	}
 
@@ -104,16 +84,12 @@ int32_t ext2_fsal_ln_hl(const char *src, const char *dst) {
 
 	// add new directory entry pointing to source inode
 	int retval = add_dir_entry(parent_ino, name, src_ino, file_type);
-	if (retval != 0) {
-		mutex_unlock(&global_fs_lock);
-		return retval;
-	}
+	if (retval != 0) return retval;
 
 	// increment source inode's link count
 	mutex_lock(&inode_locks[src_ino - 1]);
 	src_inode->i_links_count++;
 	mutex_unlock(&inode_locks[src_ino - 1]);
 	
-	mutex_unlock(&global_fs_lock);
 	return 0;
 }

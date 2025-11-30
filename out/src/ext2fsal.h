@@ -43,7 +43,6 @@ extern pthread_mutex_t* inode_locks;
 extern pthread_mutex_t* block_locks;
 extern pthread_mutex_t inode_bitmap_lock;
 extern pthread_mutex_t block_bitmap_lock;
-extern pthread_mutex_t global_fs_lock;  // Global lock for serializing FS operations
 
 // --------------------- FILESYSTEM OPERATIONS -----------------------
 
