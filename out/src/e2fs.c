@@ -151,12 +151,6 @@ void locks_destroy(int num_inodes, int num_blocks) {
 	inode_locks = NULL;
 }
 
-
-// NOTE ABOUT THE HELPERS (REMOVE LATER): alot of them rn lock within the helpers, 
-// but im not sure if its better if we control the locks outside of 
-// these helpers. I feel like it would be more efficient outside idk ;-; 
-
-
 // ----------------- INODE ACCESS/ALLOCATION HELPERS ----------------
 
 /*
@@ -866,8 +860,6 @@ void init_file_inode(struct ext2_inode *inode) {
 	inode->i_links_count = 1;
 	inode->i_dtime = 0;
 	inode->i_ctime = (uint32_t)time(NULL);
-	inode->i_mtime = inode->i_ctime;
-	inode->i_atime = inode->i_ctime;
 }
 
 // ------------------------- COPY HELPERS ---------------------------

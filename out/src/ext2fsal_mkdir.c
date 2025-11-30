@@ -95,11 +95,7 @@ int32_t ext2_fsal_mkdir(const char *path) {
 	new_inode.i_size = EXT2_BLOCK_SIZE;
 	new_inode.i_links_count = 2;  // "." + ".."
 	new_inode.i_blocks = EXT2_BLOCK_SIZE / 512;
-
-	// set creation/modification time
 	new_inode.i_ctime = (uint32_t)time(NULL);
-	new_inode.i_mtime = new_inode.i_ctime;
-	new_inode.i_atime = new_inode.i_ctime;
 
 	// initialize block pointers
 	for (int i = 0; i < TOTAL_POINTERS; i++) {

@@ -87,8 +87,6 @@ int32_t ext2_fsal_ln_sl(const char *src, const char *dst) {
 	new_inode.i_blocks = EXT2_BLOCK_SIZE / 512;
 	new_inode.i_block[0] = new_block;
 	new_inode.i_ctime = (unsigned int)time(NULL);
-	new_inode.i_mtime = new_inode.i_ctime;
-	new_inode.i_atime = new_inode.i_ctime;
 
 	// write target path to data block
 	char *blk = get_block(new_block);
