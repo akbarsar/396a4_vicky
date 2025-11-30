@@ -38,6 +38,9 @@ int32_t ext2_fsal_rm(const char *path) {
 
 	if (path[0] != '/') return ENOENT;
 
+	// Acquire global lock to serialize filesystem operations
+	mutex_lock(&global_fs_lock);
+
 	// check for trailing slash
 	size_t parent_len = strlen(path);
 	int has_trailing_slash = (parent_len > 1 && path[parent_len - 1] == '/');
@@ -47,33 +50,44 @@ int32_t ext2_fsal_rm(const char *path) {
 	char name[EXT2_NAME_LEN];
 
 	int retval = split_parent_name(path, parent_path, name);
-	if (retval != 0) return retval;
+	if (retval != 0) {
+		mutex_unlock(&global_fs_lock);
+		return retval;
+	}
 
 	// lookup parent directory
 	int parent_ino = path_lookup(parent_path);
-	if (parent_ino < 0) 
+	if (parent_ino < 0) {
+		mutex_unlock(&global_fs_lock);
 		return errno;
+	}
 
 	struct ext2_inode *parent_inode = get_inode(parent_ino);
 
 	// intermediates in path should be directories
 	if (!S_ISDIR(parent_inode->i_mode)) {
+		mutex_unlock(&global_fs_lock);
 		return ENOENT;
 	}
 
 	// find target file in parent directory
 	int target_ino = find_dir_entry(parent_inode, name);
-	if (target_ino < 0) 
+	if (target_ino < 0) {
+		mutex_unlock(&global_fs_lock);
 		return ENOENT;
+	}
 
 	struct ext2_inode *target_inode = get_inode(target_ino);
 
 	// cannot remove directories
-	if (S_ISDIR(target_inode->i_mode)) 
+	if (S_ISDIR(target_inode->i_mode)) {
+		mutex_unlock(&global_fs_lock);
 		return EISDIR;
+	}
 
 	// trailing slash on non-directory is an error
 	if (has_trailing_slash) {
+		mutex_unlock(&global_fs_lock);
 		return ENOENT;
 	}
 
@@ -123,7 +137,10 @@ int32_t ext2_fsal_rm(const char *path) {
 
 	mutex_unlock(&inode_locks[parent_ino - 1]);
 
-	if (!found) return ENOENT;
+	if (!found) {
+		mutex_unlock(&global_fs_lock);
+		return ENOENT;
+	}
 
 	// update target inode: decrement link count
 	mutex_lock(&inode_locks[target_ino - 1]);
@@ -173,5 +190,6 @@ int32_t ext2_fsal_rm(const char *path) {
 		mutex_unlock(&inode_locks[target_ino - 1]);
 	}
 
+	mutex_unlock(&global_fs_lock);
 	return 0;
 }

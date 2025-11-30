@@ -40,19 +40,31 @@ int32_t ext2_fsal_mkdir(const char *path) {
 		return ENOENT;  // must be absolute path
 	}
 
+	// Acquire global lock to serialize filesystem operations
+	mutex_lock(&global_fs_lock);
+
 	// parse path into parent directory and target name
 	char parent_path[PATH_MAX];
 	char name[EXT2_NAME_LEN];
 	int retval = split_parent_name(path, parent_path, name);
-	if (retval != 0) return retval;
+	if (retval != 0) {
+		mutex_unlock(&global_fs_lock);
+		return retval;
+	}
 
 	// lookup parent directory inode
 	int parent_ino = path_lookup(parent_path);
-	if (parent_ino < 0) return errno;
+	if (parent_ino < 0) {
+		mutex_unlock(&global_fs_lock);
+		return errno;
+	}
 
 	// ensure parent is a directory - intermediate must be
 	struct ext2_inode *parent_inode = get_inode(parent_ino);
-	if (!S_ISDIR(parent_inode->i_mode)) return ENOENT;
+	if (!S_ISDIR(parent_inode->i_mode)) {
+		mutex_unlock(&global_fs_lock);
+		return ENOENT;
+	}
 
 	// check if target name already exists in parent
 	int existing = find_dir_entry(parent_inode, name);
@@ -61,16 +73,19 @@ int32_t ext2_fsal_mkdir(const char *path) {
 		
 		// if existing entry is a directory, return EEXIST
 		if (S_ISDIR(exist_inode->i_mode)) {
+			mutex_unlock(&global_fs_lock);
 			return EEXIST;
 		}
 		
 		// if path has trailing slash but is file
 		size_t parent_len = strlen(path);
 		if (parent_len > 1 && path[parent_len - 1] == '/') {
+			mutex_unlock(&global_fs_lock);
 			return ENOENT;
 		}
 		
 		// entry exists as non-directory
+		mutex_unlock(&global_fs_lock);
 		return EEXIST;
 	}
 
@@ -78,12 +93,16 @@ int32_t ext2_fsal_mkdir(const char *path) {
 
 	// allocate inode for the new directory
 	int new_ino = alloc_inode();
-	if (new_ino < 0) return ENOSPC;
+	if (new_ino < 0) {
+		mutex_unlock(&global_fs_lock);
+		return ENOSPC;
+	}
 
 	// allocate data block for the directory contents
 	int new_block = alloc_block();
 	if (new_block < 0) {
 		free_inode(new_ino);
+		mutex_unlock(&global_fs_lock);
 		return ENOSPC;
 	}
 
@@ -135,6 +154,7 @@ int32_t ext2_fsal_mkdir(const char *path) {
 	if (add_retval < 0) {
 		free_block(new_block);
 		free_inode(new_ino);
+		mutex_unlock(&global_fs_lock);
 		return add_retval;
 	}
 
@@ -144,5 +164,6 @@ int32_t ext2_fsal_mkdir(const char *path) {
 	p->i_links_count += 1;
 	mutex_unlock(&inode_locks[parent_ino - 1]);
 
+	mutex_unlock(&global_fs_lock);
 	return 0;
 }

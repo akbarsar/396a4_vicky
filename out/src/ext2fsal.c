@@ -40,6 +40,7 @@ pthread_mutex_t* inode_locks;    // per-inode locks
 pthread_mutex_t* block_locks;    // per-block locks
 pthread_mutex_t inode_bitmap_lock; // lock for inode bitmap access
 pthread_mutex_t block_bitmap_lock; // lock for block bitmap access
+pthread_mutex_t global_fs_lock;    // global lock for serializing FS operations
 
 // PRIVATE VARIABLES
 static int disk;           // file descriptor for disk image

@@ -43,38 +43,58 @@ int32_t ext2_fsal_ln_sl(const char *src, const char *dst) {
 		return ENOENT;  // paths must be absolute
 	}
 	
+	// Acquire global lock to serialize filesystem operations
+	mutex_lock(&global_fs_lock);
+	
 	// parse destination path
 	char parent[PATH_MAX], name[EXT2_NAME_LEN];
 	int retval = split_parent_name(dst, parent, name);
-	if (retval != 0) return retval;
+	if (retval != 0) {
+		mutex_unlock(&global_fs_lock);
+		return retval;
+	}
 
 	// lookup destination parent directory
 	int parent_ino = path_lookup(parent);
-	if (parent_ino < 0) return errno;
+	if (parent_ino < 0) {
+		mutex_unlock(&global_fs_lock);
+		return errno;
+	}
 
 	// intermediate inodes should all be directories
 	struct ext2_inode *p_inode = get_inode(parent_ino);
-	if (!S_ISDIR(p_inode->i_mode)) return ENOENT;
+	if (!S_ISDIR(p_inode->i_mode)) {
+		mutex_unlock(&global_fs_lock);
+		return ENOENT;
+	}
 	
 	// check if destination name already exists
 	int exists = find_dir_entry(p_inode, name);
 	
 	if (exists >= 0) {
 		struct ext2_inode *eino = get_inode(exists);
-		if (S_ISDIR(eino->i_mode)) return EISDIR;
+		if (S_ISDIR(eino->i_mode)) {
+			mutex_unlock(&global_fs_lock);
+			return EISDIR;
+		}
 
 		// existing file (non-directory) with target name
+		mutex_unlock(&global_fs_lock);
 		return EEXIST;
 	}
 	
 	// allocate inode for symlink
 	int new_ino = alloc_inode();
-	if (new_ino < 0) return ENOSPC;
+	if (new_ino < 0) {
+		mutex_unlock(&global_fs_lock);
+		return ENOSPC;
+	}
 
 	// allocate data block for target path
 	int new_block = alloc_block();
 	if (new_block < 0) {
 		free_inode(new_ino);
+		mutex_unlock(&global_fs_lock);
 		return ENOSPC;
 	}
 
@@ -101,8 +121,10 @@ int32_t ext2_fsal_ln_sl(const char *src, const char *dst) {
 	if (r < 0) {
 		free_block(new_block);
 		free_inode(new_ino);
+		mutex_unlock(&global_fs_lock);
 		return r;
 	}
 	
+	mutex_unlock(&global_fs_lock);
 	return 0;
 }

@@ -118,6 +118,9 @@ void locks_init(int num_inodes, int num_blocks) {
 	// initialize bitmap locks
 	mutex_init(&inode_bitmap_lock);
 	mutex_init(&block_bitmap_lock);
+	
+	// initialize global filesystem lock
+	mutex_init(&global_fs_lock);
 
 	// initialize per-inode and per-block locks
         for (int i = 0; i < num_inodes; i++) {
@@ -143,6 +146,9 @@ void locks_destroy(int num_inodes, int num_blocks) {
 	// destroy bitmap locks	
 	mutex_destroy(&inode_bitmap_lock);
 	mutex_destroy(&block_bitmap_lock);
+	
+	// destroy global filesystem lock
+	mutex_destroy(&global_fs_lock);
 
 	// free lock arrays
         free(inode_locks);
