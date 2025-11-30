@@ -429,7 +429,7 @@ int add_dir_entry(int parent_inode, const char* name, int child_inode, uint8_t t
 	
 	struct ext2_inode* dir_inode = get_inode(parent_inode);
 
-	// verify parent is a directory
+	// verify parent is a directory (initial check before lock)
 	if (!S_ISDIR(dir_inode->i_mode)) {
 		return ENOENT;
 	}
@@ -438,6 +438,21 @@ int add_dir_entry(int parent_inode, const char* name, int child_inode, uint8_t t
 	int needed = dir_entry_rec_len(name_len);
 
 	mutex_lock(&inode_locks[parent_inode - 1]);
+
+	// Re-verify: parent is still a valid directory after acquiring lock
+	// This handles race condition where parent was deleted concurrently
+	if (!S_ISDIR(dir_inode->i_mode)) {
+		mutex_unlock(&inode_locks[parent_inode - 1]);
+		return ENOENT;
+	}
+
+	// Re-verify: check if name already exists after acquiring lock
+	// This handles race condition where another thread created same name
+	int existing = find_dir_entry(dir_inode, name);
+	if (existing >= 0) {
+		mutex_unlock(&inode_locks[parent_inode - 1]);
+		return EEXIST;
+	}
 
 	// find last used block in directory
 	int last_block_index = -1;
