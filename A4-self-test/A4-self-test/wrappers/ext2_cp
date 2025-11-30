@@ -22,7 +22,7 @@ if __name__ == "__main__":
     time.sleep(0.1)
 
     client = subprocess.Popen(["./ext2umfs_cp",
-                               src,
+                               "../../" + src,
                                dst],
                               cwd="./out/util/")
     client.wait()
