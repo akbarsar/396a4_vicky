@@ -73,9 +73,8 @@ int32_t ext2_fsal_mkdir(const char *path) {
 		// entry exists as non-directory
 		return EEXIST;
 	}
-	else if (existing != ENOENT) {
-		return existing; // unexpected error, safety check
-	}
+
+	// existing == -1; not found, create directory
 
 	// allocate inode for the new directory
 	int new_ino = alloc_inode();
