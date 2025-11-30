@@ -26,17 +26,17 @@ Used inodes (Inode NUMBER): 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16
 [12] 'CsMaJorStArTeRpAcK' EXT2_FT_DIR; rec length: 980 
     [12] '.' EXT2_FT_DIR; rec length: 12 
     [ 2] '..' EXT2_FT_DIR; rec length: 12 
-    [13] 'csc309' EXT2_FT_DIR; rec length: 16 
+    [13] 'csc343' EXT2_FT_DIR; rec length: 16 
         [13] '.' EXT2_FT_DIR; rec length: 12 
+        [12] '..' EXT2_FT_DIR; rec length: 1012 
+    [14] 'csc301' EXT2_FT_DIR; rec length: 16 
+        [14] '.' EXT2_FT_DIR; rec length: 12 
         [12] '..' EXT2_FT_DIR; rec length: 1012 
     [15] 'csc318' EXT2_FT_DIR; rec length: 16 
         [15] '.' EXT2_FT_DIR; rec length: 12 
         [12] '..' EXT2_FT_DIR; rec length: 1012 
-    [16] 'csc343' EXT2_FT_DIR; rec length: 16 
+    [16] 'csc309' EXT2_FT_DIR; rec length: 952 
         [16] '.' EXT2_FT_DIR; rec length: 12 
-        [12] '..' EXT2_FT_DIR; rec length: 1012 
-    [14] 'csc301' EXT2_FT_DIR; rec length: 952 
-        [14] '.' EXT2_FT_DIR; rec length: 12 
         [12] '..' EXT2_FT_DIR; rec length: 1012 
 
 == INODE DUMP ==

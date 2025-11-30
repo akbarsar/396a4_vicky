@@ -11,11 +11,11 @@ Blockgroup
   Free blocks count:99
   Free inodes count:15
   Used directories:4
-Inode bitmap: 11111111111111011100000000000000
-Block bitmap: 1111111111111111111111111011100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
+Inode bitmap: 11111111111111111000000000000000
+Block bitmap: 1111111111111111111111111111000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000
 
-Used blocks (Block NUMBER): 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 27 28 29 
-Used inodes (Inode NUMBER): 1 2 3 4 5 6 7 8 9 10 11 12 13 14 16 17 18 
+Used blocks (Block NUMBER): 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 
+Used inodes (Inode NUMBER): 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 
 
 == FILESYSTEM TREE ==
 [ 2] '.' EXT2_FT_DIR; rec length: 12 
@@ -28,12 +28,12 @@ Used inodes (Inode NUMBER): 1 2 3 4 5 6 7 8 9 10 11 12 13 14 16 17 18
     [ 2] '..' EXT2_FT_DIR; rec length: 12 
     [13] 'ext2lnhl.txt' EXT2_FT_REG_FILE; rec length: 20 
     [14] 'ext2lnsl.txt' EXT2_FT_REG_FILE; rec length: 40 
-    [16] 'soft_ext2lnsl0.txt' EXT2_FT_SYMLINK; rec length: 28 
-    [17] 'ext2cp0.txt' EXT2_FT_REG_FILE; rec length: 20 
-    [18] '_and_the_brightest0' EXT2_FT_DIR; rec length: 28 
-        [18] '.' EXT2_FT_DIR; rec length: 12 
+    [13] 'hard_ext2lnhl0.txt' EXT2_FT_REG_FILE; rec length: 28 
+    [16] '_and_the_brightest0' EXT2_FT_DIR; rec length: 28 
+        [16] '.' EXT2_FT_DIR; rec length: 12 
         [12] '..' EXT2_FT_DIR; rec length: 1012 
-    [13] 'hard_ext2lnhl0.txt' EXT2_FT_REG_FILE; rec length: 864 
+    [15] 'soft_ext2lnsl0.txt' EXT2_FT_SYMLINK; rec length: 28 
+    [17] 'ext2cp0.txt' EXT2_FT_REG_FILE; rec length: 856 
 
 == INODE DUMP ==
 INODE 2: {size:1024, links:4, blocks:2, dtime: 0}
@@ -93,11 +93,14 @@ INODE 14: {size:340, links:1, blocks:2, dtime: 0}
   > 00000130: 7c 7c 5f 5f 5f 5f 5f 5f 5f 7c 7c 5f 7c 20 7c 5f ||_______||_|.|_
   > 00000140: 5f 7c 7c 5f 5f 5f 5f 5f 5f 5f 7c 7c 5f 5f 5f 5f _||_______||____
   > 00000150: 5f 5f 5f 7c                                     ___|
-INODE 16: {size:22, links:1, blocks:2, dtime: 0}
-  Inode References (Index->Block Number): 0->27 
+INODE 15: {size:22, links:1, blocks:2, dtime: 0}
+  Inode References (Index->Block Number): 0->26 
   TYPE: EXT2_S_IFLNK
   > 00000000: 2f 74 68 65 5f 62 65 73 74 2f 65 78 74 32 6c 6e /the_best/ext2ln
   > 00000010: 73 6c 2e 74 78 74                               sl.txt
+INODE 16: {size:1024, links:2, blocks:2, dtime: 0}
+  Inode References (Index->Block Number): 0->27 
+  TYPE: EXT2_S_IFDIR
 INODE 17: {size:250, links:1, blocks:2, dtime: 0}
   Inode References (Index->Block Number): 0->28 
   TYPE: EXT2_S_IFREG
@@ -117,6 +120,3 @@ INODE 17: {size:250, links:1, blocks:2, dtime: 0}
   > 000000d0: 5f 5f 7c 7c 5f 5f 7c 20 7c 5f 5f 7c 20 7c 5f 5f __||__|.|__|.|__
   > 000000e0: 5f 7c 20 7c 5f 5f 5f 5f 5f 5f 5f 7c 7c 5f 5f 5f _|.|_______||___
   > 000000f0: 5f 5f 5f 5f 7c 7c 5f 5f 5f 7c                   ____||___|
-INODE 18: {size:1024, links:2, blocks:2, dtime: 0}
-  Inode References (Index->Block Number): 0->29 
-  TYPE: EXT2_S_IFDIR

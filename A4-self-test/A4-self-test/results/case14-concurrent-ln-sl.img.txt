@@ -30,10 +30,10 @@ Used inodes (Inode NUMBER): 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20
     [14] 'csc309' EXT2_FT_REG_FILE; rec length: 16 
     [15] 'csc318' EXT2_FT_REG_FILE; rec length: 16 
     [16] 'csc343' EXT2_FT_REG_FILE; rec length: 16 
-    [17] 'csc490' EXT2_FT_SYMLINK; rec length: 16 
-    [18] 'csc428' EXT2_FT_SYMLINK; rec length: 16 
-    [19] 'csc409' EXT2_FT_SYMLINK; rec length: 16 
-    [20] 'csc443' EXT2_FT_SYMLINK; rec length: 888 
+    [18] 'csc490' EXT2_FT_SYMLINK; rec length: 16 
+    [17] 'csc428' EXT2_FT_SYMLINK; rec length: 16 
+    [19] 'csc443' EXT2_FT_SYMLINK; rec length: 16 
+    [20] 'csc409' EXT2_FT_SYMLINK; rec length: 888 
 
 == INODE DUMP ==
 INODE 2: {size:1024, links:4, blocks:2, dtime: 0}
@@ -148,19 +148,19 @@ INODE 17: {size:26, links:1, blocks:2, dtime: 0}
   Inode References (Index->Block Number): 0->28 
   TYPE: EXT2_S_IFLNK
   > 00000000: 2f 43 73 4d 61 4a 6f 72 53 74 41 72 54 65 52 70 /CsMaJorStArTeRp
-  > 00000010: 41 63 4b 2f 63 73 63 33 30 31                   AcK/csc301
+  > 00000010: 41 63 4b 2f 63 73 63 33 31 38                   AcK/csc318
 INODE 18: {size:26, links:1, blocks:2, dtime: 0}
   Inode References (Index->Block Number): 0->29 
   TYPE: EXT2_S_IFLNK
   > 00000000: 2f 43 73 4d 61 4a 6f 72 53 74 41 72 54 65 52 70 /CsMaJorStArTeRp
-  > 00000010: 41 63 4b 2f 63 73 63 33 31 38                   AcK/csc318
+  > 00000010: 41 63 4b 2f 63 73 63 33 30 31                   AcK/csc301
 INODE 19: {size:26, links:1, blocks:2, dtime: 0}
   Inode References (Index->Block Number): 0->30 
   TYPE: EXT2_S_IFLNK
   > 00000000: 2f 43 73 4d 61 4a 6f 72 53 74 41 72 54 65 52 70 /CsMaJorStArTeRp
-  > 00000010: 41 63 4b 2f 63 73 63 33 30 39                   AcK/csc309
+  > 00000010: 41 63 4b 2f 63 73 63 33 34 33                   AcK/csc343
 INODE 20: {size:26, links:1, blocks:2, dtime: 0}
   Inode References (Index->Block Number): 0->31 
   TYPE: EXT2_S_IFLNK
   > 00000000: 2f 43 73 4d 61 4a 6f 72 53 74 41 72 54 65 52 70 /CsMaJorStArTeRp
-  > 00000010: 41 63 4b 2f 63 73 63 33 34 33                   AcK/csc343
+  > 00000010: 41 63 4b 2f 63 73 63 33 30 39                   AcK/csc309

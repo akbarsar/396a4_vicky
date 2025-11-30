@@ -28,21 +28,21 @@ Used inodes (Inode NUMBER): 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 2
     [ 2] '..' EXT2_FT_DIR; rec length: 12 
     [13] 'ext2lnhl.txt' EXT2_FT_REG_FILE; rec length: 20 
     [14] 'ext2lnsl.txt' EXT2_FT_REG_FILE; rec length: 120 
-    [20] 'soft_ext2lnsl0.txt' EXT2_FT_SYMLINK; rec length: 28 
     [13] 'hard_ext2lnhl0.txt' EXT2_FT_REG_FILE; rec length: 28 
+    [20] 'ext2cp0.txt' EXT2_FT_REG_FILE; rec length: 20 
     [13] 'hard_ext2lnhl1.txt' EXT2_FT_REG_FILE; rec length: 28 
     [13] 'hard_ext2lnhl2.txt' EXT2_FT_REG_FILE; rec length: 28 
     [13] 'hard_ext2lnhl3.txt' EXT2_FT_REG_FILE; rec length: 28 
     [13] 'hard_ext2lnhl4.txt' EXT2_FT_REG_FILE; rec length: 28 
-    [22] '_and_the_brightest0' EXT2_FT_DIR; rec length: 28 
-        [22] '.' EXT2_FT_DIR; rec length: 12 
-        [12] '..' EXT2_FT_DIR; rec length: 1012 
+    [21] 'soft_ext2lnsl0.txt' EXT2_FT_SYMLINK; rec length: 28 
     [15] 'soft_ext2lnsl1.txt' EXT2_FT_SYMLINK; rec length: 28 
     [16] 'soft_ext2lnsl2.txt' EXT2_FT_SYMLINK; rec length: 28 
     [17] 'soft_ext2lnsl3.txt' EXT2_FT_SYMLINK; rec length: 28 
     [18] 'soft_ext2lnsl4.txt' EXT2_FT_SYMLINK; rec length: 28 
-    [21] 'ext2cp0.txt' EXT2_FT_REG_FILE; rec length: 20 
-    [19] 'ext2cp1.txt' EXT2_FT_REG_FILE; rec length: 20 
+    [19] '_and_the_brightest0' EXT2_FT_DIR; rec length: 28 
+        [19] '.' EXT2_FT_DIR; rec length: 12 
+        [12] '..' EXT2_FT_DIR; rec length: 1012 
+    [22] 'ext2cp1.txt' EXT2_FT_REG_FILE; rec length: 20 
     [23] 'ext2cp2.txt' EXT2_FT_REG_FILE; rec length: 20 
     [24] 'ext2cp3.txt' EXT2_FT_REG_FILE; rec length: 20 
     [25] 'ext2cp4.txt' EXT2_FT_REG_FILE; rec length: 20 
@@ -137,8 +137,11 @@ INODE 18: {size:22, links:1, blocks:2, dtime: 0}
   TYPE: EXT2_S_IFLNK
   > 00000000: 2f 74 68 65 5f 62 65 73 74 2f 65 78 74 32 6c 6e /the_best/ext2ln
   > 00000010: 73 6c 2e 74 78 74                               sl.txt
-INODE 19: {size:250, links:1, blocks:2, dtime: 0}
+INODE 19: {size:1024, links:2, blocks:2, dtime: 0}
   Inode References (Index->Block Number): 0->30 
+  TYPE: EXT2_S_IFDIR
+INODE 20: {size:250, links:1, blocks:2, dtime: 0}
+  Inode References (Index->Block Number): 0->31 
   TYPE: EXT2_S_IFREG
   > 00000000: 5f 5f 5f 5f 5f 5f 5f 20 5f 5f 20 5f 5f 20 5f 5f _______.__.__.__
   > 00000010: 5f 5f 5f 5f 5f 20 5f 5f 5f 5f 5f 5f 5f 20 5f 5f _____._______.__
@@ -156,13 +159,13 @@ INODE 19: {size:250, links:1, blocks:2, dtime: 0}
   > 000000d0: 5f 5f 7c 7c 5f 5f 7c 20 7c 5f 5f 7c 20 7c 5f 5f __||__|.|__|.|__
   > 000000e0: 5f 7c 20 7c 5f 5f 5f 5f 5f 5f 5f 7c 7c 5f 5f 5f _|.|_______||___
   > 000000f0: 5f 5f 5f 5f 7c 7c 5f 5f 5f 7c                   ____||___|
-INODE 20: {size:22, links:1, blocks:2, dtime: 0}
-  Inode References (Index->Block Number): 0->31 
+INODE 21: {size:22, links:1, blocks:2, dtime: 0}
+  Inode References (Index->Block Number): 0->32 
   TYPE: EXT2_S_IFLNK
   > 00000000: 2f 74 68 65 5f 62 65 73 74 2f 65 78 74 32 6c 6e /the_best/ext2ln
   > 00000010: 73 6c 2e 74 78 74                               sl.txt
-INODE 21: {size:250, links:1, blocks:2, dtime: 0}
-  Inode References (Index->Block Number): 0->32 
+INODE 22: {size:250, links:1, blocks:2, dtime: 0}
+  Inode References (Index->Block Number): 0->33 
   TYPE: EXT2_S_IFREG
   > 00000000: 5f 5f 5f 5f 5f 5f 5f 20 5f 5f 20 5f 5f 20 5f 5f _______.__.__.__
   > 00000010: 5f 5f 5f 5f 5f 20 5f 5f 5f 5f 5f 5f 5f 20 5f 5f _____._______.__
@@ -180,9 +183,6 @@ INODE 21: {size:250, links:1, blocks:2, dtime: 0}
   > 000000d0: 5f 5f 7c 7c 5f 5f 7c 20 7c 5f 5f 7c 20 7c 5f 5f __||__|.|__|.|__
   > 000000e0: 5f 7c 20 7c 5f 5f 5f 5f 5f 5f 5f 7c 7c 5f 5f 5f _|.|_______||___
   > 000000f0: 5f 5f 5f 5f 7c 7c 5f 5f 5f 7c                   ____||___|
-INODE 22: {size:1024, links:2, blocks:2, dtime: 0}
-  Inode References (Index->Block Number): 0->33 
-  TYPE: EXT2_S_IFDIR
 INODE 23: {size:250, links:1, blocks:2, dtime: 0}
   Inode References (Index->Block Number): 0->34 
   TYPE: EXT2_S_IFREG
