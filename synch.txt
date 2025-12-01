@@ -159,40 +159,72 @@ Race Condition Handling
          return EISDIR;
      }
 
-Locking Strategy Details
-------------------------
+LOCK ACQUISITION STRATEGY
+-------------------------
 
-1. Bitmap Lock Acquisition (Brief, Atomic):
-   - alloc_inode(): Lock bitmap -> find free -> mark used -> unlock
-   - alloc_block(): Lock bitmap -> find free -> mark used -> unlock
-   - free_inode(): Lock bitmap -> mark free -> unlock
-   - free_block(): Lock bitmap -> mark free -> unlock
-   
-   These operations are designed to be fast and non-blocking.
+Lock Usage
+~~~~~~~~~~
+The list below describes when each lock is required:
 
-2. Inode Lock Acquisition (For Validation and Modification):
-   - write_inode(): Lock -> copy data -> unlock
-   - add_dir_entry(): Lock parent -> re-verify -> modify -> unlock
-   - ext2_fsal_rm(): Lock parent -> search/remove -> unlock, then lock target
-   - ext2_fsal_ln_hl(): Lock source -> re-verify/increment -> unlock
+Inode Bitmap Lock (inode_bitmap_lock):
+  Used in:
+    - alloc_inode(): Lock -> find free inode -> mark used -> update counts -> unlock
+    - free_inode(): Lock -> mark free -> update counts -> unlock
+  Purpose: Protects inode bitmap and free inode counts in superblock/group_desc.
+  Always held only briefly (non-nested).
 
-3. Block Lock Acquisition (For Directory Data Modification):
-   - write_block(): Lock -> memcpy -> unlock
-   - add_dir_entry(): Lock block -> modify entries -> unlock
-   - ext2_fsal_rm(): Lock block -> remove entry -> unlock
+Block Bitmap Lock (block_bitmap_lock):
+  Used in:
+    - alloc_block(): Lock -> find free block -> mark used -> update counts -> unlock
+    - free_block(): Lock -> mark free -> update counts -> unlock
+  Purpose: Protects block bitmap and free block counts.
+  Also held briefly (non-nested).
+
+Per-Inode Locks (inode_locks[]):
+  Held when:
+    - Reading/modifying any inode fields (e.g., links_count, i_mode)
+    - Writing new inode metadata via write_inode()
+    - Changing link counts in ln_hl, rm, mkdir
+    - Validating inode state after optimistic lookup
+  Index: inode_locks[inode_number - 1]
+
+Per-Block Locks (block_locks[]):
+  Held during:
+    - Writing or updating file/directory data via write_block()
+    - Modifying directory entries (adding/removing entries in add_dir_entry, rm)
+    - Initializing new directory blocks
+  Index: block_locks[block_number - 1]
 
 Lock Ordering (Deadlock Prevention)
------------------------------------
-When multiple locks must be held simultaneously, we follow this order:
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+The actual lock ordering varies by operation, but follows these principles:
 
-1. Parent inode lock FIRST (for directory operations)
-2. Block locks SECOND (for directory data blocks)
-3. Bitmap locks are acquired/released atomically (never held with other locks)
-4. Target inode locks LAST (for modifying target files)
+1. BITMAP LOCKS are always non-nested and brief:
+   - Never held while acquiring inode or block locks
+   - Acquired and released atomically within alloc/free functions
 
-Special case for ln_hl:
-- Lock SOURCE inode first (to prevent deletion race)
-- Then lock parent (via add_dir_entry) for adding entry
+2. For DIRECTORY OPERATIONS (add_dir_entry, rm):
+   - Parent directory inode lock FIRST
+   - Parent directory data block locks SECOND (while holding parent inode lock)
+   - Unlock in reverse order: block first, then parent inode
+
+3. TARGET INODE is locked SEPARATELY (not nested with parent):
+   - In rm: Parent is fully unlocked before locking target inode
+   - In mkdir: Parent lock for link count update is separate from add_dir_entry
+
+4. SPECIAL CASE for ln_hl:
+   - Source inode lock FIRST (to prevent deletion race)
+   - Unlock source BEFORE calling add_dir_entry
+   - Parent locks handled independently by add_dir_entry
+
+Unlocking Strategy
+~~~~~~~~~~~~~~~~~~
+We unlock immediately after finishing with each resource:
+- Block locks released before parent inode lock (reverse order)
+- No circular dependencies because:
+  * Bitmap locks never overlap with inode/block locks
+  * Target inode locked only after parent is released (in rm)
+  * ln_hl releases source lock before acquiring parent locks
 
 Operation-Specific Synchronization
 ----------------------------------
