@@ -226,49 +226,152 @@ We unlock immediately after finishing with each resource:
   * Target inode locked only after parent is released (in rm)
   * ln_hl releases source lock before acquiring parent locks
 
-Operation-Specific Synchronization
-----------------------------------
+Operation-Specific Synchronization (with explicit lock names)
+-------------------------------------------------------------
 
 ext2_fsal_mkdir:
-1. OPTIMISTIC: Parse path, lookup parent, check if name exists
-2. ALLOCATE: Get new inode and block (bitmap locks held briefly)
-3. PREPARE: Initialize inode and block (no locks needed for new resources)
-4. VALIDATE & MODIFY: 
-   - add_dir_entry: Lock parent -> re-verify name doesn't exist -> add entry
-5. UPDATE: Lock parent inode -> increment link count -> unlock
+1. OPTIMISTIC PHASE (NO LOCKS):
+   - Parse path, call path_lookup() for parent
+   - Call find_dir_entry() to check if name exists
+   
+2. ALLOCATE (BITMAP LOCKS - brief, non-nested):
+   - alloc_inode(): inode_bitmap_lock held briefly
+   - alloc_block(): block_bitmap_lock held briefly
+   
+3. PREPARE (NO LOCKS - new resources not yet visible):
+   - Initialize new_inode struct in local memory
+   - write_inode(new_ino, &new_inode): acquires inode_locks[new_ino-1] briefly
+   - write_block(new_block, block_buf): acquires block_locks[new_block-1] briefly
+   
+4. ADD ENTRY via add_dir_entry() (NESTED LOCKS):
+   - Acquires: inode_locks[parent_ino-1]
+   - Re-verifies: parent is directory, name doesn't exist
+   - Acquires: block_locks[block_num-1] (while holding parent inode lock)
+   - Modifies directory block
+   - Releases: block_locks[block_num-1]
+   - Releases: inode_locks[parent_ino-1]
+   
+5. UPDATE PARENT LINK COUNT (SINGLE LOCK):
+   - Acquires: inode_locks[parent_ino-1]
+   - Increments parent->i_links_count
+   - Releases: inode_locks[parent_ino-1]
+
+6. ON FAILURE - CLEANUP (BITMAP LOCKS):
+   - free_block(): block_bitmap_lock held briefly
+   - free_inode(): inode_bitmap_lock held briefly
 
 ext2_fsal_ln_hl:
-1. OPTIMISTIC: Lookup source, check it's not a directory, lookup dest parent
-2. VALIDATE SOURCE: Lock source inode -> re-verify valid (links>0, dtime=0)
-3. PREEMPTIVE INCREMENT: Increment link count BEFORE adding entry (prevents deletion)
-4. ADD ENTRY: add_dir_entry handles parent locking and re-verification
-5. ROLLBACK if needed: On failure, lock source -> decrement link count -> unlock
+1. OPTIMISTIC PHASE (NO LOCKS):
+   - path_lookup(src) to find source inode
+   - Check source is not a directory
+   - split_parent_name(dst) and path_lookup(parent)
+   - find_dir_entry() to check if dest name exists
+   
+2. VALIDATE & INCREMENT SOURCE (SINGLE LOCK):
+   - Acquires: inode_locks[src_ino-1]
+   - Re-verifies: links_count > 0, dtime == 0, not a directory
+   - Increments: src_inode->i_links_count (preemptive)
+   - Releases: inode_locks[src_ino-1]
+   
+3. ADD ENTRY via add_dir_entry() (NESTED LOCKS):
+   - Acquires: inode_locks[parent_ino-1]
+   - Re-verifies: parent is directory, name doesn't exist
+   - Acquires: block_locks[block_num-1] (nested)
+   - Adds directory entry
+   - Releases: block_locks[block_num-1]
+   - Releases: inode_locks[parent_ino-1]
+   
+4. ON FAILURE - ROLLBACK (SINGLE LOCK):
+   - Acquires: inode_locks[src_ino-1]
+   - Decrements: src_inode->i_links_count
+   - Releases: inode_locks[src_ino-1]
 
 ext2_fsal_rm:
-1. OPTIMISTIC: Lookup parent, find target, verify not a directory
-2. LOCK PARENT: Acquire parent inode lock
-3. RE-VERIFY: Confirm parent is still a directory
-4. SEARCH & REMOVE: 
-   - Lock each block while searching
-   - Find entry by NAME (not pre-looked-up inode)
-   - Re-verify target is not a directory
-   - Remove entry from block
-5. UNLOCK PARENT
-6. UPDATE TARGET: Lock target inode -> decrement link count
-7. CLEANUP: If links == 0, free blocks and inode
+1. OPTIMISTIC PHASE (NO LOCKS):
+   - split_parent_name() and path_lookup(parent_path)
+   - find_dir_entry() to find target inode
+   - Check target is not a directory
+   
+2. LOCK PARENT AND SEARCH (NESTED LOCKS):
+   - Acquires: inode_locks[parent_ino-1]
+   - Re-verifies: parent is still a directory
+   - For each block in parent directory:
+     - Acquires: block_locks[block_num-1] (nested with parent inode lock)
+     - Searches for entry by NAME
+     - If found: re-verify not a directory, remove entry
+     - Releases: block_locks[block_num-1]
+   - Releases: inode_locks[parent_ino-1]
+   
+3. UPDATE TARGET (SINGLE LOCK - AFTER parent released):
+   - Acquires: inode_locks[found_target_ino-1]
+   - Decrements: i_links_count
+   - If links_count == 0:
+     - Sets i_dtime
+     - Calls free_block() for each data block (block_bitmap_lock - brief, while holding target inode lock)
+     - Releases: inode_locks[found_target_ino-1]
+     - Calls free_inode(): inode_bitmap_lock held briefly
+   - Else:
+     - Releases: inode_locks[found_target_ino-1]
 
 ext2_fsal_cp:
-1. OPTIMISTIC: Open source, lookup dest parent, check for existing
-2. ALLOCATE: Get new inode (or reuse if overwriting)
-3. WRITE DATA: Allocate and write blocks (brief block locks via write_block)
-4. ADD ENTRY: If new file, use add_dir_entry (handles locking)
-5. If overwriting: Lock target -> free old blocks -> write new data -> unlock
+1. OPTIMISTIC PHASE (NO LOCKS):
+   - open() source file on host filesystem
+   - resolve_copy_destination() using path_lookup()
+   - check_copy_target() using find_dir_entry()
+   
+2. HANDLE EXISTING TARGET (if overwriting):
+   - free_inode_blocks_locked(): acquires inode_locks[target_ino-1], 
+     calls free_block() (block_bitmap_lock), releases inode lock
+   
+3. ALLOCATE NEW INODE (BITMAP LOCK):
+   - alloc_inode(): inode_bitmap_lock held briefly
+   
+4. WRITE FILE DATA (BLOCK LOCKS - brief, sequential):
+   - write_data_into_inode() internally:
+     - alloc_block(): block_bitmap_lock held briefly
+     - write_block(): block_locks[block_num-1] held briefly
+   
+5. WRITE INODE (SINGLE LOCK):
+   - write_inode(use_ino, &new_inode): inode_locks[use_ino-1] held briefly
+   
+6. ADD ENTRY (if new file) via add_dir_entry() (NESTED LOCKS):
+   - Acquires: inode_locks[parent_ino-1]
+   - Re-verifies: parent is directory, name doesn't exist
+   - Acquires: block_locks[block_num-1] (nested)
+   - Adds directory entry
+   - Releases: block_locks[block_num-1]
+   - Releases: inode_locks[parent_ino-1]
+
+7. ON FAILURE - CLEANUP (BITMAP LOCKS):
+   - free_inode_blocks_locked(): inode lock + block_bitmap_lock
+   - free_inode(): inode_bitmap_lock held briefly
 
 ext2_fsal_ln_sl:
-1. OPTIMISTIC: Lookup parent directory
-2. ALLOCATE: Get new inode and block for symlink
-3. WRITE: Store path in block (via write_block with lock)
-4. ADD ENTRY: Use add_dir_entry (handles parent locking)
+1. OPTIMISTIC PHASE (NO LOCKS):
+   - split_parent_name(dst) and path_lookup(parent)
+   - find_dir_entry() to check if name exists
+   
+2. ALLOCATE (BITMAP LOCKS - brief, non-nested):
+   - alloc_inode(): inode_bitmap_lock held briefly
+   - alloc_block(): block_bitmap_lock held briefly
+   
+3. WRITE SYMLINK DATA (NO LOCKS - direct memcpy to new block):
+   - get_block(new_block) and memcpy (block is newly allocated, not visible yet)
+   
+4. WRITE INODE (SINGLE LOCK):
+   - write_inode(new_ino, &new_inode): inode_locks[new_ino-1] held briefly
+   
+5. ADD ENTRY via add_dir_entry() (NESTED LOCKS):
+   - Acquires: inode_locks[parent_ino-1]
+   - Re-verifies: parent is directory, name doesn't exist
+   - Acquires: block_locks[block_num-1] (nested)
+   - Adds symlink entry
+   - Releases: block_locks[block_num-1]
+   - Releases: inode_locks[parent_ino-1]
+
+6. ON FAILURE - CLEANUP (BITMAP LOCKS):
+   - free_block(): block_bitmap_lock held briefly
+   - free_inode(): inode_bitmap_lock held briefly
 
 Benefits of Optimistic Locking Approach
 ---------------------------------------
